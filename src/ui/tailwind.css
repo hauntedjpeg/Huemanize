@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* Text */
+  --color-figma-text:               var(--figma-color-text);
+  --color-figma-text-secondary:     var(--figma-color-text-secondary);
+  --color-figma-text-tertiary:      var(--figma-color-text-tertiary);
+  --color-figma-text-disabled:      var(--figma-color-text-disabled);
+  --color-figma-text-brand:         var(--figma-color-text-brand);
+  --color-figma-text-danger:        var(--figma-color-text-danger);
+  --color-figma-text-warning:       var(--figma-color-text-warning);
+  --color-figma-text-success:       var(--figma-color-text-success);
+  --color-figma-text-onbrand:       var(--figma-color-text-onbrand);
+  --color-figma-text-component:     var(--figma-color-text-component);
+  --color-figma-text-selected:      var(--figma-color-text-selected);
+
+  /* Background */
+  --color-figma-bg:                 var(--figma-color-bg);
+  --color-figma-bg-secondary:       var(--figma-color-bg-secondary);
+  --color-figma-bg-tertiary:        var(--figma-color-bg-tertiary);
+  --color-figma-bg-brand:           var(--figma-color-bg-brand);
+  --color-figma-bg-danger:          var(--figma-color-bg-danger);
+  --color-figma-bg-warning:         var(--figma-color-bg-warning);
+  --color-figma-bg-success:         var(--figma-color-bg-success);
+  --color-figma-bg-disabled:        var(--figma-color-bg-disabled);
+  --color-figma-bg-selected:        var(--figma-color-bg-selected);
+  --color-figma-bg-component:       var(--figma-color-bg-component);
+  --color-figma-bg-inverse:         var(--figma-color-bg-inverse);
+  --color-figma-bg-slot:            var(--figma-color-bg-slot);
+
+  /* Icon */
+  --color-figma-icon:               var(--figma-color-icon);
+  --color-figma-icon-secondary:     var(--figma-color-icon-secondary);
+  --color-figma-icon-tertiary:      var(--figma-color-icon-tertiary);
+  --color-figma-icon-brand:         var(--figma-color-icon-brand);
+  --color-figma-icon-danger:        var(--figma-color-icon-danger);
+  --color-figma-icon-disabled:      var(--figma-color-icon-disabled);
+  --color-figma-icon-success:       var(--figma-color-icon-success);
+  --color-figma-icon-warning:       var(--figma-color-icon-warning);
+  --color-figma-icon-component:     var(--figma-color-icon-component);
+
+  /* Border */
+  --color-figma-border:             var(--figma-color-border);
+  --color-figma-border-strong:      var(--figma-color-border-strong);
+  --color-figma-border-brand:       var(--figma-color-border-brand);
+  --color-figma-border-danger:      var(--figma-color-border-danger);
+  --color-figma-border-disabled:    var(--figma-color-border-disabled);
+  --color-figma-border-selected:    var(--figma-color-border-selected);
+  --color-figma-border-success:     var(--figma-color-border-success);
+  --color-figma-border-warning:     var(--figma-color-border-warning);
+  --color-figma-border-component:   var(--figma-color-border-component);
+  --color-figma-border-slot:        var(--figma-color-border-slot);
+}
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    overflow: hidden;
+  }
+}
