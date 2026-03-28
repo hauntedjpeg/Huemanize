@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { PluginMessage, PluginResponse, ScaleEntry, ScaleStep } from './types'
+import type { PluginMessage, PluginResponse, ScaleEntry, ScaleStep, CollectionOption } from './types'
+import { detectAnchorStep } from '../plugin/color'
 import HexInput from './components/HexInput'
 import ScalePreview from './components/ScalePreview'
 import ColorNameInput from './components/ColorNameInput'
@@ -10,11 +11,13 @@ function postToPlugin(msg: PluginMessage) {
 
 export default function App() {
   const [hex, setHex] = useState('#3b82f6')
-  const [anchorStep, setAnchorStep] = useState<ScaleStep>(600)
+  const [anchorStep, setAnchorStep] = useState<ScaleStep>(() => detectAnchorStep('#3b82f6'))
   const [scale, setScale] = useState<ScaleEntry[]>([])
   const [colorName, setColorName] = useState('')
   const [suggestedName, setSuggestedName] = useState('')
   const [status, setStatus] = useState<string | null>(null)
+  const [collections, setCollections] = useState<CollectionOption[]>([])
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string>('')
   const prevSuggestion = useRef('')
 
   // Listen for plugin responses
@@ -31,6 +34,8 @@ export default function App() {
           setColorName(msg.suggestedName)
         }
         prevSuggestion.current = msg.suggestedName
+      } else if (msg.type === 'collections-list') {
+        setCollections(msg.collections)
       } else if (msg.type === 'added-to-variables') {
         setStatus('Added to variables!')
         setTimeout(() => setStatus(null), 3000)
@@ -43,6 +48,11 @@ export default function App() {
     return () => window.removeEventListener('message', handleMessage)
   }, [colorName])
 
+  // Fetch collections on mount
+  useEffect(() => {
+    postToPlugin({ type: 'get-collections' })
+  }, [])
+
   // Generate scale when hex or anchor changes
   useEffect(() => {
     if (hex) {
@@ -52,6 +62,7 @@ export default function App() {
 
   const handleHexChange = useCallback((newHex: string) => {
     setHex(newHex)
+    setAnchorStep(detectAnchorStep(newHex))
   }, [])
 
   const handleAnchorChange = useCallback((step: ScaleStep) => {
@@ -60,8 +71,14 @@ export default function App() {
 
   const handleAddToVariables = useCallback(() => {
     const name = colorName.trim() || suggestedName || 'Color'
-    postToPlugin({ type: 'add-to-variables', hex, anchorStep, colorName: name })
-  }, [hex, anchorStep, colorName, suggestedName])
+    postToPlugin({
+      type: 'add-to-variables',
+      hex,
+      anchorStep,
+      colorName: name,
+      collectionId: selectedCollectionId || undefined,
+    })
+  }, [hex, anchorStep, colorName, suggestedName, selectedCollectionId])
 
   return (
     <div className="flex flex-col gap-3 p-4 h-full">
@@ -76,6 +93,19 @@ export default function App() {
       />
 
       <ColorNameInput value={colorName} onChange={setColorName} />
+
+      <select
+        value={selectedCollectionId}
+        onChange={(e) => setSelectedCollectionId(e.target.value)}
+        className="w-full px-2 py-1.5 text-sm rounded border border-figma-border bg-figma-bg text-figma-text"
+      >
+        <option value="">
+          {collections.length === 0 ? 'Create new "Colors" collection' : 'Create new "Colors" collection'}
+        </option>
+        {collections.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
 
       <button
         onClick={handleAddToVariables}

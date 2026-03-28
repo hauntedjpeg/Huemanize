@@ -21,7 +21,7 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
   const anchorL = anchor.l ?? 0.5
   const anchorC = anchor.c ?? 0
   const anchorH = anchor.h ?? 0
-  const isAchromatic = anchorC < 0.02
+  const isAchromatic = anchorC < 0.008
 
   const anchorIndex = SCALE_STEPS.indexOf(anchorStep)
 
@@ -73,6 +73,46 @@ function chromaFactor(l: number, anchorL: number): number {
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
+}
+
+/**
+ * Detect the most appropriate anchor step for a given hex color based on its
+ * OKLCH lightness. Used to auto-set a smart default when a new color is entered.
+ */
+export function detectAnchorStep(hex: string): ScaleStep {
+  const parsed = parse(hex)
+  if (!parsed) return 600
+
+  const color = oklch(parsed)
+  if (!color) return 600
+
+  const l = color.l ?? 0.5
+
+  const stepLightness: [ScaleStep, number][] = [
+    [50,  0.97],
+    [100, 0.93],
+    [200, 0.86],
+    [300, 0.76],
+    [400, 0.65],
+    [500, 0.54],
+    [600, 0.44],
+    [700, 0.35],
+    [800, 0.26],
+    [900, 0.19],
+    [925, 0.15],
+    [950, 0.11],
+  ]
+
+  let best: ScaleStep = 600
+  let bestDist = Infinity
+  for (const [step, target] of stepLightness) {
+    const dist = Math.abs(l - target)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = step
+    }
+  }
+  return best
 }
 
 /**

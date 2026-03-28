@@ -9,9 +9,15 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
       const scale = generateScale(msg.hex, msg.anchorStep)
       const suggestedName = suggestColorName(msg.hex)
       respond({ type: 'scale-generated', scale, suggestedName })
+    } else if (msg.type === 'get-collections') {
+      const collections = await figma.variables.getLocalVariableCollectionsAsync()
+      respond({
+        type: 'collections-list',
+        collections: collections.map((c) => ({ id: c.id, name: c.name })),
+      })
     } else if (msg.type === 'add-to-variables') {
       const scale = generateScale(msg.hex, msg.anchorStep)
-      await createColorVariables(scale, msg.colorName)
+      await createColorVariables(scale, msg.colorName, msg.collectionId)
       respond({ type: 'added-to-variables' })
     }
   } catch (e) {
@@ -32,13 +38,16 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
   }
 }
 
-async function createColorVariables(scale: ScaleEntry[], colorName: string): Promise<void> {
-  // Find or create "Colors" collection
+async function createColorVariables(scale: ScaleEntry[], colorName: string, collectionId?: string): Promise<void> {
   const collections = await figma.variables.getLocalVariableCollectionsAsync()
-  let collection = collections.find((c) => c.name === 'Colors')
+  let collection: VariableCollection | undefined
+
+  if (collectionId) {
+    collection = collections.find((c) => c.id === collectionId)
+  }
 
   if (!collection) {
-    collection = figma.variables.createVariableCollection('Colors')
+    collection = collections.find((c) => c.name === 'Colors') ?? figma.variables.createVariableCollection('Colors')
   }
 
   const modeId = collection.modes[0].modeId

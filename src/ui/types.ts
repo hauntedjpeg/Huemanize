@@ -4,13 +4,20 @@ export type ScaleStep = (typeof SCALE_STEPS)[number]
 // UI -> Plugin
 export type PluginMessage =
   | { type: 'generate-scale'; hex: string; anchorStep: ScaleStep }
-  | { type: 'add-to-variables'; hex: string; anchorStep: ScaleStep; colorName: string }
+  | { type: 'get-collections' }
+  | { type: 'add-to-variables'; hex: string; anchorStep: ScaleStep; colorName: string; collectionId?: string }
 
 // Plugin -> UI
 export type PluginResponse =
   | { type: 'scale-generated'; scale: ScaleEntry[]; suggestedName: string }
+  | { type: 'collections-list'; collections: CollectionOption[] }
   | { type: 'added-to-variables' }
   | { type: 'error'; message: string }
+
+export interface CollectionOption {
+  id: string
+  name: string
+}
 
 export interface ScaleEntry {
   step: ScaleStep
