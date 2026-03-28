@@ -5,18 +5,26 @@ export type ScaleStep = (typeof SCALE_STEPS)[number]
 export type PluginMessage =
   | { type: 'generate-scale'; hex: string; anchorStep: ScaleStep }
   | { type: 'get-collections' }
+  | { type: 'get-all-groups' }
   | { type: 'add-to-variables'; hex: string; anchorStep: ScaleStep; colorName: string; collectionId?: string }
 
 // Plugin -> UI
 export type PluginResponse =
   | { type: 'scale-generated'; scale: ScaleEntry[]; suggestedName: string }
   | { type: 'collections-list'; collections: CollectionOption[] }
+  | { type: 'all-groups'; collections: CollectionWithGroups[] }
   | { type: 'added-to-variables' }
   | { type: 'error'; message: string }
 
 export interface CollectionOption {
   id: string
   name: string
+}
+
+export interface CollectionWithGroups {
+  id: string
+  name: string
+  groups: string[]
 }
 
 export interface ScaleEntry {
