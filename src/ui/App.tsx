@@ -81,45 +81,47 @@ export default function App() {
   }, [hex, anchorStep, colorName, suggestedName, selectedCollectionId])
 
   return (
-    <div className="flex flex-col gap-3 p-4 h-full">
-      <h1 className="text-base font-semibold text-figma-text">Huemanize</h1>
+    <div className="flex h-full">
+      <div className="w-full p-5">
+        <HexInput value={hex} onChange={handleHexChange} />
 
-      <HexInput value={hex} onChange={handleHexChange} />
+        <ColorNameInput value={colorName} onChange={setColorName} />
 
-      <ScalePreview
-        scale={scale}
-        anchorStep={anchorStep}
-        onAnchorChange={handleAnchorChange}
-      />
+        <select
+          value={selectedCollectionId}
+          onChange={(e) => setSelectedCollectionId(e.target.value)}
+          className="w-full h-6 px-1 text-[11px]/4 rounded border border-figma-border bg-figma-bg-secondary text-figma-text focus-visible:outline-none focus-visible:border-figma-border-selected"
+        >
+          <option value="">
+            {collections.length === 0 ? 'Create new "Colors" collection' : 'Create new "Colors" collection'}
+          </option>
+          {collections.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
 
-      <ColorNameInput value={colorName} onChange={setColorName} />
+        <button
+          onClick={handleAddToVariables}
+          disabled={scale.length === 0}
+          className="w-full py-2 text-sm font-medium rounded bg-figma-bg-brand text-figma-text-onbrand hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Add to Variables
+        </button>
 
-      <select
-        value={selectedCollectionId}
-        onChange={(e) => setSelectedCollectionId(e.target.value)}
-        className="w-full px-2 py-1.5 text-sm rounded border border-figma-border bg-figma-bg text-figma-text"
-      >
-        <option value="">
-          {collections.length === 0 ? 'Create new "Colors" collection' : 'Create new "Colors" collection'}
-        </option>
-        {collections.map((c) => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
-
-      <button
-        onClick={handleAddToVariables}
-        disabled={scale.length === 0}
-        className="w-full py-2 text-sm font-medium rounded bg-figma-bg-brand text-figma-text-onbrand hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Add to Variables
-      </button>
-
-      {status && (
-        <p className={`text-xs text-center ${status.startsWith('Error') ? 'text-figma-text-danger' : 'text-figma-text-success'}`}>
-          {status}
-        </p>
-      )}
+        {status && (
+          <p className={`text-xs text-center ${status.startsWith('Error') ? 'text-figma-text-danger' : 'text-figma-text-success'}`}>
+            {status}
+          </p>
+        )}
+      </div>
+      
+      <div className="w-full p-5 border-l border-figma-border">
+        <ScalePreview
+          scale={scale}
+          anchorStep={anchorStep}
+          onAnchorChange={handleAnchorChange}
+        />
+      </div>
     </div>
   )
 }

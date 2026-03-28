@@ -45,6 +45,9 @@ importers:
       esbuild:
         specifier: ^0.19.8
         version: 0.19.12
+      stera-icons:
+        specifier: 8.0.14
+        version: 8.0.14(react@18.3.1)
       tailwindcss:
         specifier: ^4.2.2
         version: 4.2.2
@@ -1013,6 +1016,12 @@ packages:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
+  stera-icons@8.0.14:
+    resolution: {integrity: sha512-CIRA+9Naj4XVqLRBdzsOUmCkeKXDfe2KwEcOwR54kAR4qpedCLeN0IASQgeeacyXEwJ1BIhnPnjsIjnqvGwqvA==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      react: '>=17.0.2'
+
   string-width@4.2.3:
     resolution: {integrity: sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g==}
     engines: {node: '>=8'}
@@ -1904,6 +1913,10 @@ snapshots:
   shell-quote@1.8.3: {}
 
   source-map-js@1.2.1: {}
+
+  stera-icons@8.0.14(react@18.3.1):
+    dependencies:
+      react: 18.3.1
 
   string-width@4.2.3:
     dependencies:

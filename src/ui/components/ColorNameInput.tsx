@@ -12,7 +12,7 @@ export default function ColorNameInput({ value, onChange }: ColorNameInputProps)
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="e.g. Blue, Primary, Brand"
-        className="px-2 py-1.5 text-sm rounded border border-figma-border bg-figma-bg-secondary text-figma-text focus:outline-none focus:border-figma-border-brand"
+        className="h-6 px-2 py-1.5 text-[11px]/4 rounded border border-figma-border bg-figma-bg-secondary text-figma-text focus:outline-none focus:border-figma-border-select"
       />
     </div>
   )

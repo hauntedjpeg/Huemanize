@@ -40,9 +40,9 @@ export default function HexInput({ value, onChange }: HexInputProps) {
   const displayHex = normalize(raw) ?? value
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 relative">
       <div
-        className="w-8 h-8 rounded border border-figma-border shrink-0"
+        className="absolute top-1 left-1 size-4 rounded border border-figma-border shrink-0"
         style={{ backgroundColor: displayHex }}
       />
       <input
@@ -50,9 +50,9 @@ export default function HexInput({ value, onChange }: HexInputProps) {
         value={raw}
         onChange={handleChange}
         placeholder="#3b82f6"
-        className={`flex-1 px-2 py-1.5 text-sm rounded border bg-figma-bg-secondary text-figma-text font-mono ${
+        className={`h-6 flex-1 px-2 pl-6 text-xs rounded border bg-figma-bg-secondary text-figma-text ${
           valid ? 'border-figma-border' : 'border-figma-border-danger'
-        } focus:outline-none focus:border-figma-border-brand`}
+        } focus:outline-none focus:border-figma-border-selected`}
       />
     </div>
   )
