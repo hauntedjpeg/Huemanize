@@ -56,10 +56,10 @@ export default function HexInput({ value, onChange }: HexInputProps) {
 
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-xs text-figma-text-secondary">Hex</label>
+      <label className="text-[9px]/3.5 font-medium tracking-wide text-figma-text-secondary">Color</label>
       <div className="flex items-center gap-2 relative">
         <div
-          className="absolute top-1 left-1 size-4 rounded border border-figma-border shrink-0"
+          className="absolute top-[5px] left-[5px] size-3.5 rounded-xs shrink-0"
           style={{ backgroundColor: displayHex }}
         />
         <input
@@ -69,8 +69,8 @@ export default function HexInput({ value, onChange }: HexInputProps) {
           onFocus={handleFocus}
           onBlur={handleBlur}
           placeholder=""
-          className={`h-6 flex-1 px-2 pl-6 text-[11px]/4 rounded border bg-figma-bg-secondary text-figma-text ${
-            valid ? 'border-figma-border' : 'border-figma-border-danger'
+          className={`h-6 flex-1 px-2 pl-6 text-[11px]/4 rounded-md border border-figma-bg-secondary bg-figma-bg-secondary text-figma-text ${
+            valid ? 'border-figma-bg hover:border-figma-border' : 'border-figma-border-danger'
           } focus:outline-none focus:border-figma-border-selected`}
         />
       </div>

@@ -1,3 +1,4 @@
+import { SiCircleFill } from 'stera-icons'
 import type { ScaleEntry, ScaleStep } from '../types'
 
 interface ScalePreviewProps {
@@ -25,18 +26,22 @@ export default function ScalePreview({ scale, anchorStep, onAnchorChange }: Scal
           <button
             key={entry.step}
             onClick={() => onAnchorChange(entry.step)}
-            className={`flex-1 flex h-full flex-col items-center justify-end rounded-sm cursor-pointer transition-all ${
-              isAnchor ? 'ring-2 ring-figma-border-brand ring-offset-1' : ''
-            }`}
+            className="flex-1 relative flex h-full flex-col items-center justify-center rounded-md cursor-pointer transition-all"
             style={{
               backgroundColor: entry.hex,
-              height: '140px',
             }}
             title={`${entry.step}: ${entry.hex}${isAnchor ? ' (anchor)' : ''}\nClick to set as anchor`}
           >
+            {isAnchor && (
+              <SiCircleFill
+                className={`absolute left-2 top-1/2 -translate-y-1/2 size-2 ${
+                  isLight ? 'text-black/70' : 'text-white/80'
+                }`}
+              />
+            )}
             <span
-              className={`text-[9px] font-medium pb-1 ${
-                isLight ? 'text-black/60' : 'text-white/60'
+              className={`text-[9px] font-medium ${
+                isLight ? 'text-black/80' : 'text-white/90'
               }`}
             >
               {entry.step}

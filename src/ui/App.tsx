@@ -15,7 +15,7 @@ function postToPlugin(msg: PluginMessage) {
 type Mode = 'add' | 'update'
 
 export default function App() {
-  const [hex, setHex] = useState('#3b82f6')
+  const [hex, setHex] = useState('#859991')
   const [anchorStep, setAnchorStep] = useState<ScaleStep>(() => detectAnchorStep('#3b82f6'))
   const [scale, setScale] = useState<ScaleEntry[]>([])
   const [colorName, setColorName] = useState('')
@@ -29,6 +29,10 @@ export default function App() {
   const [groupedCollections, setGroupedCollections] = useState<CollectionWithGroups[]>([])
   const [selectedTarget, setSelectedTarget] = useState<string>('') // "collectionId|groupName"
   const prevSuggestion = useRef('')
+  const modeRef = useRef(mode)
+  const colorNameRef = useRef(colorName)
+  modeRef.current = mode
+  colorNameRef.current = colorName
 
   // Listen for plugin responses
   useEffect(() => {
@@ -39,7 +43,7 @@ export default function App() {
       if (msg.type === 'scale-generated') {
         setScale(msg.scale)
         setSuggestedName(msg.suggestedName)
-        if (colorName === '' || colorName === prevSuggestion.current) {
+        if (colorNameRef.current === '' || colorNameRef.current === prevSuggestion.current) {
           setColorName(msg.suggestedName)
         }
         prevSuggestion.current = msg.suggestedName
@@ -49,7 +53,7 @@ export default function App() {
         setGroupedCollections(msg.collections)
         setSelectedTarget(msg.collections[0]?.groups[0] ? `${msg.collections[0].id}|${msg.collections[0].groups[0]}` : '')
       } else if (msg.type === 'added-to-variables') {
-        setStatus(mode === 'update' ? 'Variables updated!' : 'Added to variables!')
+        setStatus(modeRef.current === 'update' ? 'Variables updated!' : 'Added to variables!')
         setTimeout(() => setStatus(null), 3000)
       } else if (msg.type === 'error') {
         setStatus(`Error: ${msg.message}`)
@@ -58,19 +62,13 @@ export default function App() {
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [colorName, mode])
-
-  // Fetch collections on mount
-  useEffect(() => {
-    postToPlugin({ type: 'get-collections' })
   }, [])
 
-  // Fetch all groups when switching to update mode
+  // Fetch collections and groups on mount
   useEffect(() => {
-    if (mode === 'update') {
-      postToPlugin({ type: 'get-all-groups' })
-    }
-  }, [mode])
+    postToPlugin({ type: 'get-collections' })
+    postToPlugin({ type: 'get-all-groups' })
+  }, [])
 
   // Generate scale when hex or anchor changes
   useEffect(() => {
@@ -101,45 +99,51 @@ export default function App() {
 
   return (
     <div className="flex h-full">
-      <div className="flex flex-col w-full p-5">
-        <HexInput value={hex} onChange={handleHexChange} />
+      <div className="flex flex-col w-full">
+        <div className="p-4 border-b border-figma-border">
+          <HexInput value={hex} onChange={handleHexChange} />
+        </div>
 
-        {mode === 'add' && <ColorNameInput value={colorName} onChange={setColorName} />}
+        <div className="flex flex-col gap-3 p-4">
+          <ModeToggle value={mode} onChange={setMode} />
 
-        <ModeToggle value={mode} onChange={setMode} />
+          {mode === 'add' && <ColorNameInput value={colorName} onChange={setColorName} />}
 
-        {mode === 'add' && (
-          <CollectionSelect
-            collections={collections}
-            value={selectedCollectionId}
-            onChange={setSelectedCollectionId}
-          />
-        )}
+          {mode === 'add' && (
+            <CollectionSelect
+              collections={collections}
+              value={selectedCollectionId}
+              onChange={setSelectedCollectionId}
+            />
+          )}
 
-        {mode === 'update' && (
-          <GroupSelect
-            collections={groupedCollections}
-            value={selectedTarget}
-            onChange={setSelectedTarget}
-          />
-        )}
+          {mode === 'update' && (
+            <GroupSelect
+              collections={groupedCollections}
+              value={selectedTarget}
+              onChange={setSelectedTarget}
+            />
+          )}
+        </div>
 
-        <button
-          onClick={handleSubmit}
-          disabled={scale.length === 0 || (mode === 'update' && !selectedTarget)}
-          className="w-full py-2 mt-auto text-sm font-medium rounded bg-figma-bg-brand text-figma-text-onbrand hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {mode === 'update' ? 'Update Variables' : 'Add to Variables'}
-        </button>
+        <div className="flex flex-col gap-2 p-4 mt-auto">
+          <button
+            onClick={handleSubmit}
+            disabled={scale.length === 0 || (mode === 'update' && !selectedTarget)}
+            className="flex justify-center items-center w-full h-6 py-2 text-[11px]/4 font-medium rounded bg-figma-bg-brand text-figma-text-onbrand hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {mode === 'update' ? 'Update Variables' : 'Add to Variables'}
+          </button>
 
-        {status && (
-          <p className={`text-xs text-center ${status.startsWith('Error') ? 'text-figma-text-danger' : 'text-figma-text-success'}`}>
-            {status}
-          </p>
-        )}
+          {status && (
+            <p className={`text-xs text-center ${status.startsWith('Error') ? 'text-figma-text-danger' : 'text-figma-text-success'}`}>
+              {status}
+            </p>
+          )}
+        </div>
       </div>
 
-      <div className="w-full p-5 border-l border-figma-border">
+      <div className="w-full p-4 border-l border-figma-border">
         <ScalePreview
           scale={scale}
           anchorStep={anchorStep}
