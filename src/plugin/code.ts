@@ -6,11 +6,11 @@ figma.showUI(__html__, { width: 480, height: 400, themeColors: true })
 figma.ui.onmessage = async (msg: PluginMessage) => {
   try {
     if (msg.type === 'generate-scale') {
-      const scale = generateScale(msg.hex, msg.anchorStep, msg.curve)
+      const scale = generateScale(msg.hex, msg.anchorStep)
       const suggestedName = suggestColorName(msg.hex)
       respond({ type: 'scale-generated', scale, suggestedName })
     } else if (msg.type === 'add-to-variables') {
-      const scale = generateScale(msg.hex, msg.anchorStep, msg.curve)
+      const scale = generateScale(msg.hex, msg.anchorStep)
       await createColorVariables(scale, msg.colorName)
       respond({ type: 'added-to-variables' })
     }

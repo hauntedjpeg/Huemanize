@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { PluginMessage, PluginResponse, ScaleEntry, ScaleStep, LightnessCurve } from './types'
+import type { PluginMessage, PluginResponse, ScaleEntry, ScaleStep } from './types'
 import HexInput from './components/HexInput'
 import ScalePreview from './components/ScalePreview'
 import ColorNameInput from './components/ColorNameInput'
-import CurveSelector from './components/CurveSelector'
 
 function postToPlugin(msg: PluginMessage) {
   parent.postMessage({ pluginMessage: msg }, '*')
@@ -11,8 +10,7 @@ function postToPlugin(msg: PluginMessage) {
 
 export default function App() {
   const [hex, setHex] = useState('#3b82f6')
-  const [anchorStep, setAnchorStep] = useState<ScaleStep>(500)
-  const [curve, setCurve] = useState<LightnessCurve>('linear')
+  const [anchorStep, setAnchorStep] = useState<ScaleStep>(600)
   const [scale, setScale] = useState<ScaleEntry[]>([])
   const [colorName, setColorName] = useState('')
   const [suggestedName, setSuggestedName] = useState('')
@@ -45,12 +43,12 @@ export default function App() {
     return () => window.removeEventListener('message', handleMessage)
   }, [colorName])
 
-  // Generate scale when hex, anchor, or curve changes
+  // Generate scale when hex or anchor changes
   useEffect(() => {
     if (hex) {
-      postToPlugin({ type: 'generate-scale', hex, anchorStep, curve })
+      postToPlugin({ type: 'generate-scale', hex, anchorStep })
     }
-  }, [hex, anchorStep, curve])
+  }, [hex, anchorStep])
 
   const handleHexChange = useCallback((newHex: string) => {
     setHex(newHex)
@@ -62,8 +60,8 @@ export default function App() {
 
   const handleAddToVariables = useCallback(() => {
     const name = colorName.trim() || suggestedName || 'Color'
-    postToPlugin({ type: 'add-to-variables', hex, anchorStep, curve, colorName: name })
-  }, [hex, anchorStep, curve, colorName, suggestedName])
+    postToPlugin({ type: 'add-to-variables', hex, anchorStep, colorName: name })
+  }, [hex, anchorStep, colorName, suggestedName])
 
   return (
     <div className="flex flex-col gap-3 p-4 h-full">
@@ -76,8 +74,6 @@ export default function App() {
         anchorStep={anchorStep}
         onAnchorChange={handleAnchorChange}
       />
-
-      <CurveSelector value={curve} onChange={setCurve} />
 
       <ColorNameInput value={colorName} onChange={setColorName} />
 

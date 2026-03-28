@@ -1,16 +1,6 @@
 import { oklch, formatHex, parse } from 'culori'
-import { SCALE_STEPS, type ScaleStep, type ScaleEntry, type LightnessCurve } from '../ui/types'
-
-/**
- * Easing functions applied to the interpolation parameter `t` (0→1).
- * All functions map [0,1] → [0,1] and pass through 0 and 1.
- */
-const CURVES: Record<LightnessCurve, (t: number) => number> = {
-  linear:  (t) => t,
-  easeIn:  (t) => t * t,
-  easeOut: (t) => t * (2 - t),
-  sCurve:  (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
-}
+import { colornames as colorNameList } from 'color-name-list'
+import { SCALE_STEPS, type ScaleStep, type ScaleEntry } from '../ui/types'
 
 /**
  * Generate a Tailwind-style 50-950 color scale from a hex input.
@@ -20,9 +10,8 @@ const CURVES: Record<LightnessCurve, (t: number) => number> = {
  * The input color is pinned at `anchorStep`. Steps lighter than the anchor
  * interpolate toward white; steps darker interpolate toward black. Chroma
  * tapers naturally toward the extremes (OKLCH gamut narrows near L=0 and L=1).
- * The `curve` parameter controls how lightness is distributed across steps.
  */
-export function generateScale(hex: string, anchorStep: ScaleStep, curve: LightnessCurve = 'linear'): ScaleEntry[] {
+export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] {
   const parsed = parse(hex)
   if (!parsed) throw new Error('Invalid color')
 
@@ -35,7 +24,6 @@ export function generateScale(hex: string, anchorStep: ScaleStep, curve: Lightne
   const isAchromatic = anchorC < 0.02
 
   const anchorIndex = SCALE_STEPS.indexOf(anchorStep)
-  const ease = CURVES[curve]
 
   return SCALE_STEPS.map((step, index) => {
     let l: number
@@ -47,14 +35,17 @@ export function generateScale(hex: string, anchorStep: ScaleStep, curve: Lightne
     } else if (index < anchorIndex) {
       // Lighter segment: t goes 0 (step 50) → 1 (anchor).
       // 0.97 keeps 50 from being pure white and retains a hint of hue.
-      const t = ease(index / anchorIndex)
+      const t = index / anchorIndex
       l = lerp(0.97, anchorL, t)
-      c = isAchromatic ? 0 : anchorC * chromaFactor(l, anchorL)
+      const minChromaRatio = 0.06
+      c = isAchromatic ? 0 : anchorC * (minChromaRatio + (1 - minChromaRatio) * t)
     } else {
       // Darker segment: t goes 0 (anchor) → 1 (step 950).
-      // 0.18 keeps 950 clearly distinguishable from pure black.
-      const t = ease((index - anchorIndex) / (SCALE_STEPS.length - 1 - anchorIndex))
-      l = lerp(anchorL, 0.18, t)
+      // Dark end is capped at 0.18 but always kept below anchorL so the
+      // scale stays monotonically darker even for very dark anchor colors.
+      const darkEndL = Math.min(0.18, anchorL * 0.4)
+      const t = (index - anchorIndex) / (SCALE_STEPS.length - 1 - anchorIndex)
+      l = lerp(anchorL, darkEndL, t)
       c = isAchromatic ? 0 : anchorC * chromaFactor(l, anchorL)
     }
 
@@ -77,7 +68,7 @@ function chromaFactor(l: number, anchorL: number): number {
   const maxDist = Math.max(anchorL, 1 - anchorL)
   if (maxDist === 0) return 0
   const factor = 1 - Math.pow((l - anchorL) / maxDist, 2)
-  return Math.max(0.10, factor)
+  return Math.max(0.01, factor)
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -85,40 +76,35 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 /**
- * Suggest a color name based on OKLCH hue and chroma.
+ * Suggest a color name by finding the nearest match in the color-name-list
+ * database (~30,000 named colors) using RGB Euclidean distance.
  */
 export function suggestColorName(hex: string): string {
   const parsed = parse(hex)
   if (!parsed) return 'Color'
 
-  const color = oklch(parsed)
-  if (!color) return 'Color'
+  const norm = hex.replace('#', '')
+  if (norm.length !== 6) return 'Color'
 
-  const chroma = color.c ?? 0
-  if (chroma < 0.02) return 'Gray'
+  const tr = parseInt(norm.slice(0, 2), 16)
+  const tg = parseInt(norm.slice(2, 4), 16)
+  const tb = parseInt(norm.slice(4, 6), 16)
 
-  const h = ((color.h ?? 0) % 360 + 360) % 360
+  let bestName = 'Color'
+  let bestDist = Infinity
 
-  const hueNames: [number, string][] = [
-    [15, 'Red'],
-    [40, 'Orange'],
-    [65, 'Amber'],
-    [90, 'Yellow'],
-    [135, 'Lime'],
-    [160, 'Green'],
-    [185, 'Emerald'],
-    [210, 'Teal'],
-    [240, 'Cyan'],
-    [265, 'Sky'],
-    [285, 'Blue'],
-    [310, 'Indigo'],
-    [330, 'Purple'],
-    [345, 'Fuchsia'],
-    [360, 'Rose'],
-  ]
-
-  for (const [boundary, name] of hueNames) {
-    if (h < boundary) return name
+  for (const entry of colorNameList) {
+    const h = entry.hex.replace('#', '')
+    if (h.length !== 6) continue
+    const dr = tr - parseInt(h.slice(0, 2), 16)
+    const dg = tg - parseInt(h.slice(2, 4), 16)
+    const db = tb - parseInt(h.slice(4, 6), 16)
+    const dist = dr * dr + dg * dg + db * db
+    if (dist < bestDist) {
+      bestDist = dist
+      bestName = entry.name
+    }
   }
-  return 'Red'
+
+  return bestName
 }
