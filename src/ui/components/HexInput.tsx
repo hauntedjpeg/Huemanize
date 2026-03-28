@@ -24,7 +24,7 @@ export default function HexInput({ value, onChange }: HexInputProps) {
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const input = e.target.value.replace(/^#/, '')
+      const input = e.target.value
       setRaw(input)
 
       const hex = normalize(input)

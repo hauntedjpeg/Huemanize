@@ -20,7 +20,6 @@ export default function App() {
   const [scale, setScale] = useState<ScaleEntry[]>([])
   const [colorName, setColorName] = useState('')
   const [suggestedName, setSuggestedName] = useState('')
-  const [status, setStatus] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('add')
   // Add mode
   const [collections, setCollections] = useState<CollectionOption[]>([])
@@ -52,12 +51,6 @@ export default function App() {
       } else if (msg.type === 'all-groups') {
         setGroupedCollections(msg.collections)
         setSelectedTarget(msg.collections[0]?.groups[0] ? `${msg.collections[0].id}|${msg.collections[0].groups[0]}` : '')
-      } else if (msg.type === 'added-to-variables') {
-        setStatus(modeRef.current === 'update' ? 'Variables updated!' : 'Added to variables!')
-        setTimeout(() => setStatus(null), 3000)
-      } else if (msg.type === 'error') {
-        setStatus(`Error: ${msg.message}`)
-        setTimeout(() => setStatus(null), 5000)
       }
     }
     window.addEventListener('message', handleMessage)
@@ -126,7 +119,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="flex flex-col gap-2 p-4 mt-auto">
+        <div className="flex flex-col gap-3 p-4 mt-auto">
           <button
             onClick={handleSubmit}
             disabled={scale.length === 0 || (mode === 'update' && !selectedTarget)}
@@ -134,12 +127,6 @@ export default function App() {
           >
             {mode === 'update' ? 'Update Variables' : 'Add Variables'}
           </button>
-
-          {status && (
-            <p className={`text-xs text-center ${status.startsWith('Error') ? 'text-figma-text-danger' : 'text-figma-text-success'}`}>
-              {status}
-            </p>
-          )}
         </div>
       </div>
 
