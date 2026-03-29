@@ -1,9 +1,10 @@
 {
   "name": "Huemanize",
-  "id": "huemanize-plugin",
+  "id": "1620140337218073124",
   "api": "1.0.0",
   "main": "code.js",
   "ui": "ui.html",
+  "documentAccess": "dynamic-page",
   "editorType": ["figma"],
   "networkAccess": {
     "allowedDomains": ["none"]

@@ -41,9 +41,9 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
       c = isAchromatic ? 0 : anchorC * (minChromaRatio + (1 - minChromaRatio) * t)
     } else {
       // Darker segment: t goes 0 (anchor) → 1 (step 950).
-      // Dark end is capped at 0.18 but always kept below anchorL so the
+      // Dark end is capped at 0.20 but always kept below anchorL so the
       // scale stays monotonically darker even for very dark anchor colors.
-      const darkEndL = Math.min(0.18, anchorL * 0.4)
+      const darkEndL = Math.min(0.20, anchorL * 0.4)
       const t = (index - anchorIndex) / (SCALE_STEPS.length - 1 - anchorIndex)
       l = lerp(anchorL, darkEndL, t)
       c = isAchromatic ? 0 : anchorC * chromaFactor(l, anchorL)
