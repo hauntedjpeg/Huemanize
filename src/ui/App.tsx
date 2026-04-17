@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { PluginMessage, PluginResponse, ScaleEntry, ScaleStep, CollectionOption, CollectionWithGroups } from './types'
+import type { PluginMessage, PluginResponse, ScaleEntry, ScaleStep, CurveType, CollectionOption, CollectionWithGroups } from './types'
 import { detectAnchorStep } from '../plugin/color'
 import HexInput from './components/HexInput'
 import ScalePreview from './components/ScalePreview'
 import ColorNameInput from './components/ColorNameInput'
 import ModeToggle from './components/ModeToggle'
+import CurveToggle from './components/CurveToggle'
 import CollectionSelect from './components/CollectionSelect'
 import GroupSelect from './components/GroupSelect'
 
@@ -21,6 +22,7 @@ export default function App() {
   const [colorName, setColorName] = useState('')
   const [suggestedName, setSuggestedName] = useState('')
   const [mode, setMode] = useState<Mode>('add')
+  const [curveType, setCurveType] = useState<CurveType>('linear')
   // Add mode
   const [collections, setCollections] = useState<CollectionOption[]>([])
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>('')
@@ -63,12 +65,12 @@ export default function App() {
     postToPlugin({ type: 'get-all-groups' })
   }, [])
 
-  // Generate scale when hex or anchor changes
+  // Generate scale when hex, anchor, or curve changes
   useEffect(() => {
     if (hex) {
-      postToPlugin({ type: 'generate-scale', hex, anchorStep })
+      postToPlugin({ type: 'generate-scale', hex, anchorStep, curveType })
     }
-  }, [hex, anchorStep])
+  }, [hex, anchorStep, curveType])
 
   const handleHexChange = useCallback((newHex: string) => {
     setHex(newHex)
@@ -83,18 +85,19 @@ export default function App() {
     if (mode === 'update') {
       const [collectionId, ...groupParts] = selectedTarget.split('|')
       const groupName = groupParts.join('|')
-      postToPlugin({ type: 'add-to-variables', hex, anchorStep, colorName: groupName, collectionId })
+      postToPlugin({ type: 'add-to-variables', hex, anchorStep, curveType, colorName: groupName, collectionId })
     } else {
       const name = colorName.trim() || suggestedName || 'Color'
-      postToPlugin({ type: 'add-to-variables', hex, anchorStep, colorName: name, collectionId: selectedCollectionId || undefined })
+      postToPlugin({ type: 'add-to-variables', hex, anchorStep, curveType, colorName: name, collectionId: selectedCollectionId || undefined })
     }
-  }, [mode, hex, anchorStep, colorName, suggestedName, selectedCollectionId, selectedTarget])
+  }, [mode, hex, anchorStep, curveType, colorName, suggestedName, selectedCollectionId, selectedTarget])
 
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-full">
-        <div className="p-4 border-b border-figma-border">
+        <div className="flex flex-col p-4 gap-4 border-b border-figma-border">
           <HexInput value={hex} onChange={handleHexChange} />
+          <CurveToggle value={curveType} onChange={setCurveType} />
         </div>
 
         <div className="flex flex-col gap-3 p-4">

@@ -1,6 +1,6 @@
 import { oklch, formatHex, parse } from 'culori'
 import { colornames as colorNameList } from 'color-name-list'
-import { SCALE_STEPS, type ScaleStep, type ScaleEntry } from '../ui/types'
+import { SCALE_STEPS, type ScaleStep, type ScaleEntry, type CurveType } from '../ui/types'
 
 /**
  * Generate a Tailwind-style 50-950 color scale from a hex input.
@@ -10,8 +10,13 @@ import { SCALE_STEPS, type ScaleStep, type ScaleEntry } from '../ui/types'
  * The input color is pinned at `anchorStep`. Steps lighter than the anchor
  * interpolate toward white; steps darker interpolate toward black. Chroma
  * tapers naturally toward the extremes (OKLCH gamut narrows near L=0 and L=1).
+ *
+ * `curveType` controls stepping within each segment:
+ * - 'linear': uniform perceptual spacing
+ * - 'fine-ends': quadratic easing — smaller deltas near steps 50 and 950,
+ *   larger deltas near the anchor (Tailwind-style feel)
  */
-export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] {
+export function generateScale(hex: string, anchorStep: ScaleStep, curveType: CurveType): ScaleEntry[] {
   const parsed = parse(hex)
   if (!parsed) throw new Error('Invalid color')
 
@@ -36,16 +41,18 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
       // Lighter segment: t goes 0 (step 50) → 1 (anchor).
       // 0.97 keeps 50 from being pure white and retains a hint of hue.
       const t = index / anchorIndex
-      l = lerp(0.97, anchorL, t)
+      const tEased = easeT(t, curveType, 'light')
+      l = lerp(0.99, anchorL, tEased)
       const minChromaRatio = 0.06
-      c = isAchromatic ? 0 : anchorC * (minChromaRatio + (1 - minChromaRatio) * t)
+      c = isAchromatic ? 0 : anchorC * (minChromaRatio + (1 - minChromaRatio) * tEased)
     } else {
       // Darker segment: t goes 0 (anchor) → 1 (step 950).
-      // Dark end is capped at 0.20 but always kept below anchorL so the
+      // Dark end is capped at 0.19 but always kept below anchorL so the
       // scale stays monotonically darker even for very dark anchor colors.
-      const darkEndL = Math.min(0.20, anchorL * 0.4)
+      const darkEndL = Math.min(0.19, anchorL * 0.4)
       const t = (index - anchorIndex) / (SCALE_STEPS.length - 1 - anchorIndex)
-      l = lerp(anchorL, darkEndL, t)
+      const tEased = easeT(t, curveType, 'dark')
+      l = lerp(anchorL, darkEndL, tEased)
       c = isAchromatic ? 0 : anchorC * chromaFactor(l, anchorL)
     }
 
@@ -57,6 +64,22 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
       isAnchor: index === anchorIndex,
     }
   })
+}
+
+/**
+ * Map raw segment progress `t` (0..1) through the selected curve.
+ * For 'fine-ends': ease-in on the light segment (slow near step 50),
+ * ease-out on the dark segment (slow near step 950). Both compress the
+ * outer ends of the scale and expand near the anchor.
+ */
+// Exponent for the 'fine-ends' curve. Higher = tighter ends, steeper middle.
+// 2.0 = quadratic (ends too loose), 3.0 = cubic (ends too tight), 2.5 = sweet spot.
+const FINE_ENDS_POWER = 2.2
+
+function easeT(t: number, curveType: CurveType, segment: 'light' | 'dark'): number {
+  if (curveType === 'linear') return t
+  if (segment === 'light') return Math.pow(t, FINE_ENDS_POWER)
+  return 1 - Math.pow(1 - t, FINE_ENDS_POWER)
 }
 
 /**
