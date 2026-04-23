@@ -54,6 +54,11 @@ export function generateScale(hex: string, anchorStep: ScaleStep, curveType: Cur
       const tEased = easeT(t, curveType, 'dark')
       l = lerp(anchorL, darkEndL, tEased)
       c = isAchromatic ? 0 : anchorC * chromaFactor(l, anchorL)
+      // Absolute dark-side chroma ceiling: c ≤ l² × K. Prevents vivid inputs
+      // (e.g. #0000FF with anchorC ≈ 0.31) from carrying excessive chroma into
+      // very dark steps. Quadratic shape grows with L so steps near the anchor
+      // are unaffected while the darkest steps land at Tailwind-like chroma.
+      if (!isAchromatic) c = Math.min(c, l * l * DARK_CHROMA_CAP_K)
     }
 
     const result = formatHex({ mode: 'oklch', l, c, h: anchorH })
@@ -76,6 +81,13 @@ export function generateScale(hex: string, anchorStep: ScaleStep, curveType: Cur
 // 2.0 = quadratic (ends too loose), 3.0 = cubic (ends too tight), 2.5 = sweet spot.
 const FINE_ENDS_POWER = 2.2
 
+// Absolute ceiling on dark-side chroma: c ≤ l² × K. Quadratic in L so the
+// envelope is generous near the anchor (no cliff at step 600) and tight near
+// black. Calibrated against Tailwind: at L ≈ 0.18 (our darkest step) this
+// gives a cap of ~0.08, landing vivid inputs like #0000FF at blue-950-like
+// chroma while leaving already-muted inputs untouched.
+const DARK_CHROMA_CAP_K = 2.5
+
 function easeT(t: number, curveType: CurveType, segment: 'light' | 'dark'): number {
   if (curveType === 'linear') return t
   if (segment === 'light') return Math.pow(t, FINE_ENDS_POWER)
@@ -85,7 +97,9 @@ function easeT(t: number, curveType: CurveType, segment: 'light' | 'dark'): numb
 /**
  * Chroma scaling factor based on distance from anchor lightness.
  * Tapers chroma toward white (L=1) and black (L=0) using a parabolic curve,
- * mimicking how the OKLCH gamut naturally narrows at the extremes.
+ * mimicking how the OKLCH gamut naturally narrows at the extremes. An
+ * additional absolute ceiling is applied on the dark side in `generateScale`
+ * to keep very saturated inputs from carrying excess chroma into dark steps.
  */
 function chromaFactor(l: number, anchorL: number): number {
   const maxDist = Math.max(anchorL, 1 - anchorL)
