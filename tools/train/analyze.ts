@@ -24,6 +24,19 @@ function vividnessOf(l: number, c: number, h: number): number {
   return max > 0 ? Math.min(1, c / max) : 0
 }
 
+const NATURAL_ANCHOR_V_THRESHOLD = 0.95
+const NATURAL_ANCHOR_L_TOLERANCE = 0.10
+
+/** L at which the sRGB gamut chroma is maximized for this hue. */
+function bandPeakL(h: number): number {
+  let bestL = 0.5, bestC = 0
+  for (let l = 0.05; l <= 0.97; l += 0.005) {
+    const c = clampChroma({ mode: 'oklch', l, c: 1, h }, 'oklch').c ?? 0
+    if (c > bestC) { bestC = c; bestL = l }
+  }
+  return bestL
+}
+
 interface PerStepStats {
   count: number
   l: { mean: number; median: number; min: number; max: number; stdev: number }
@@ -114,6 +127,59 @@ function summarize(entries: CacheEntry[]): {
   }
 
   return { byBandStep, globalLByStep, achromaticByStep }
+}
+
+/**
+ * Minimum fraction of in-band samples that must agree on an anchor for the
+ * "natural anchor" override to fire for that band. Bands with weak modes (e.g.
+ * yellow-orange band 2 has a 3-way tie among 500/300/600) get null and fall
+ * through to existing bucket logic — picking arbitrarily would push real
+ * out-of-mode inputs (#ffc251, #ffc075) toward the wrong anchor.
+ */
+const NATURAL_ANCHOR_MIN_PLURALITY = 0.5
+
+/**
+ * Per-band anchor for inputs at the hue's gamut-peak L (high vividness AND L near peak).
+ * For these "natural anchor" inputs, hue alone determines the API's anchor placement —
+ * sidesteps the bucket-2 input.L median which gets contaminated by mid-L vivid samples.
+ *
+ * Two-axis filter: v ≥ V_THRESHOLD gates "on the gamut shell"; |L − bandPeakL(h)| ≤ TOL
+ * gates "at the *peak* of that shell, not its dark/light tails." Returns null for bands
+ * with no qualifying samples or where no anchor commands a strict plurality (those fall
+ * through to existing bucket logic).
+ */
+function computeNaturalAnchorAtPeak(entries: CacheEntry[]): (StandardStep | null)[] {
+  const perBand: Map<StandardStep, number[]>[] = []
+  for (let b = 0; b < HUE_BANDS; b++) perBand.push(new Map())
+  for (const e of entries) {
+    const inp = toOklch(e.input)
+    if (inp.c < 0.01) continue
+    const v = vividnessOf(inp.l, inp.c, inp.h)
+    if (v < NATURAL_ANCHOR_V_THRESHOLD) continue
+    const peakL = bandPeakL(inp.h)
+    if (Math.abs(inp.l - peakL) > NATURAL_ANCHOR_L_TOLERANCE) continue
+    const a = findAnchorStep(e)
+    if (a == null) continue
+    const band = hueToBand(inp.h)
+    if (!perBand[band].has(a)) perBand[band].set(a, [])
+    perBand[band].get(a)!.push(v)
+  }
+  const out: (StandardStep | null)[] = []
+  for (let b = 0; b < HUE_BANDS; b++) {
+    const m = perBand[b]
+    if (m.size === 0) { out.push(null); continue }
+    let total = 0
+    let bestA: StandardStep = 600, bestN = -1, bestMaxV = -1
+    for (const [a, vs] of m) {
+      total += vs.length
+      const maxV = Math.max(...vs)
+      if (vs.length > bestN || (vs.length === bestN && maxV > bestMaxV)) {
+        bestN = vs.length; bestMaxV = maxV; bestA = a
+      }
+    }
+    out.push(bestN / total > NATURAL_ANCHOR_MIN_PLURALITY ? bestA : null)
+  }
+  return out
 }
 
 function buildTables(entries: CacheEntry[]) {
@@ -374,6 +440,7 @@ function buildTables(entries: CacheEntry[]) {
     perAnchor,
     absoluteCPerBand,
     perAnchorBandChroma: { L: lByABC, C: cByABC, H: hByABC, sampleCount: cntByABC, inputL: inputLByABC, inputV: inputVByABC },
+    naturalAnchorAtPeak: computeNaturalAnchorAtPeak(entries),
   }
 }
 
@@ -736,6 +803,26 @@ export const INPUT_L_PER_ABC: readonly (readonly (readonly number[])[])[] = ${JS
 // Empty cells fall back to the bucket's center vividness — an empty cell still has a known v range
 // (defined by the bucket edges), so propagating from neighbors would be misleading.
 export const INPUT_V_PER_ABC: readonly (readonly (readonly number[])[])[] = ${JSON.stringify(fillInputV(tables.perAnchorBandChroma.inputV, [VIVIDNESS_BUCKET_EDGES[0] / 2, (VIVIDNESS_BUCKET_EDGES[0] + VIVIDNESS_BUCKET_EDGES[1]) / 2, (VIVIDNESS_BUCKET_EDGES[1] + 1) / 2]))}
+
+// Vividness threshold for "at the gamut shell" — inputs at or above this are candidates
+// for the natural-anchor override (hue alone determines anchor).
+export const NATURAL_ANCHOR_V_THRESHOLD = ${NATURAL_ANCHOR_V_THRESHOLD}
+
+// Allowed |input.L − bandPeakL(h)| for the natural-anchor override to fire.
+// v alone isn't enough: dark gamut-shell colors (e.g. #191700) have v=1 but anchor
+// elsewhere; the L-filter requires inputs to be at the *peak* of the gamut shell.
+export const NATURAL_ANCHOR_L_TOLERANCE = ${NATURAL_ANCHOR_L_TOLERANCE}
+
+// Per-band L at which the sRGB gamut chroma peaks (sampled at band centers). Used at
+// runtime to identify inputs at the gamut peak; emitted as a constant since clampChroma
+// is too expensive to call on the detectAnchorStep hot path.
+export const BAND_PEAK_L: readonly number[] = ${JSON.stringify(
+    Array.from({ length: HUE_BANDS }, (_, b) => bandPeakL((b + 0.5) * BAND_WIDTH))
+  )}
+
+// Override anchor for inputs at gamut peak per band. null = no qualifying training
+// samples in this band; falls through to standard bucket-2 logic.
+export const NATURAL_ANCHOR_AT_PEAK: readonly (number | null)[] = ${JSON.stringify(tables.naturalAnchorAtPeak)}
 `
 }
 

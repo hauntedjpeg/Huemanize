@@ -1,6 +1,6 @@
 import { oklch, parse, formatHex, clampChroma } from 'culori'
 import { colornames as colorNameList } from 'color-name-list'
-import { SCALE_STEPS, type ScaleStep, type ScaleEntry } from '../ui/types'
+import { type ScaleStep, type ScaleEntry } from '../ui/types'
 import {
   L_LADDER,
   ACHROMATIC_LADDER,
@@ -12,8 +12,12 @@ import {
   H_DRIFT_PER_ABC,
   INPUT_L_PER_ABC,
   INPUT_V_PER_ABC,
+  SAMPLE_COUNT_PER_ABC,
   VIVIDNESS_BUCKET_EDGES,
-  type StandardStep,
+  NATURAL_ANCHOR_AT_PEAK,
+  NATURAL_ANCHOR_V_THRESHOLD,
+  NATURAL_ANCHOR_L_TOLERANCE,
+  BAND_PEAK_L,
 } from './uicolors-tables'
 
 const ACHROMATIC_INPUT_C_THRESHOLD = 0.01
@@ -33,9 +37,6 @@ const ACHROMATIC_ABSOLUTE_FALLBACK_DL = 0.15
  * Trained against the uicolors.app `tailwindcss3` API. Input is pinned at the
  * detected (or chosen) anchor step; other steps use trained per-hue-band tables
  * for L (lightness), C (chroma envelope multiplier), and H (hue drift).
- *
- * Step 925 is Huemanize-specific: interpolated as the OKLCH midpoint between
- * matched 900 and 950.
  */
 export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] {
   const parsed = parse(hex)
@@ -49,7 +50,7 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
   const hIn = inp.h ?? 0
   const isAchromatic = cIn < ACHROMATIC_INPUT_C_THRESHOLD
 
-  const anchorIdx = STANDARD_STEPS.indexOf(anchorStep as StandardStep)
+  const anchorIdx = STANDARD_STEPS.indexOf(anchorStep)
   const lastIdx = STANDARD_STEPS.length - 1
 
   // Hue band interpolation parameters (between adjacent bands).
@@ -75,14 +76,13 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
     return lerpAngle(lerpAngle(a, b, bandT), lerpAngle(c, d, bandT), bkT)
   }
 
-  // Compute the OKLCH for each standard step (the 11 uicolors steps)
-  const standardOklch: { step: StandardStep; l: number; c: number; h: number }[] = []
+  const out: ScaleEntry[] = []
 
   for (let i = 0; i < STANDARD_STEPS.length; i++) {
     const step = STANDARD_STEPS[i]
 
     if (step === anchorStep) {
-      standardOklch.push({ step, l: lIn, c: cIn, h: hIn })
+      out.push({ step, hex: formatHex({ mode: 'oklch', l: lIn, c: cIn, h: hIn }) ?? '#000000', isAnchor: true })
       continue
     }
 
@@ -124,34 +124,13 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
 
     // Keep chroma inside the sRGB gamut for this (l, h).
     const clamped = clampChroma({ mode: 'oklch', l, c, h }, 'oklch')
-    standardOklch.push({
-      step,
+    const hexOut = formatHex({
+      mode: 'oklch',
       l: clamped.l ?? l,
       c: clamped.c ?? 0,
       h: clamped.h ?? h,
-    })
-  }
-
-  // Build the 12-step output, splicing 925 as the OKLCH midpoint of 900 and 950.
-  const out: ScaleEntry[] = []
-  const s900 = standardOklch.find((s) => s.step === 900)!
-  const s950 = standardOklch.find((s) => s.step === 950)!
-
-  for (const step of SCALE_STEPS) {
-    let hexOut: string
-    if (step === 925) {
-      const mid = {
-        mode: 'oklch' as const,
-        l: (s900.l + s950.l) / 2,
-        c: (s900.c + s950.c) / 2,
-        h: circularMeanAngle(s900.h, s950.h),
-      }
-      hexOut = formatHex(mid) ?? '#000000'
-    } else {
-      const s = standardOklch.find((x) => x.step === step)!
-      hexOut = formatHex({ mode: 'oklch', l: s.l, c: s.c, h: s.h }) ?? '#000000'
-    }
-    out.push({ step, hex: hexOut, isAnchor: step === anchorStep })
+    }) ?? '#000000'
+    out.push({ step, hex: hexOut, isAnchor: false })
   }
 
   return out
@@ -199,19 +178,47 @@ export function detectAnchorStep(hex: string): ScaleStep {
       const dist = Math.abs(l - L_LADDER[i])
       if (dist < bestDist) {
         bestDist = dist
-        best = STANDARD_STEPS[i] as ScaleStep
+        best = STANDARD_STEPS[i]
       }
     }
     return best
   }
 
   const { bandLow, bandHigh, t: bandT } = bandLookup(h)
-  const { bkLow, bkHigh, t: bkT } = bucketLookup(l, c, h)
   const v = vividnessOf(l, c, h)
+
+  // Natural-anchor override: at the per-hue gamut peak (high v AND L near peak),
+  // hue alone determines the anchor. Sidesteps the bucket-2 input.L median, which
+  // gets contaminated by mid-L vivid samples. Two-axis filter: v gates "on the
+  // gamut shell"; L gates "at the *peak* of that shell, not its dark/light tails."
+  // Picks the closer band's anchor rather than lerping indices: anchors are
+  // categorical, so lerp(600, 400) → 500 would fabricate a midpoint that wasn't
+  // observed in either band's training data (would push #ff00ff 600→500, e.g.).
+  const peakL = lerp(BAND_PEAK_L[bandLow], BAND_PEAK_L[bandHigh], bandT)
+  if (v >= NATURAL_ANCHOR_V_THRESHOLD && Math.abs(l - peakL) <= NATURAL_ANCHOR_L_TOLERANCE) {
+    const useBand = bandT < 0.5 ? bandLow : bandHigh
+    const a = NATURAL_ANCHOR_AT_PEAK[useBand]
+    if (a != null) return a as ScaleStep
+    // Closer band has no plurality-anchor evidence: fall through to bucket logic
+    // rather than borrow from the far band, which may behave very differently.
+  }
+
+  const { bkLow, bkHigh, t: bkT } = bucketLookup(l, c, h)
 
   let best: ScaleStep = 600
   let bestScore = Infinity
   for (let i = 0; i < STANDARD_STEPS.length; i++) {
+    // Skip anchors with no training evidence in any of the four interpolation cells.
+    // Empty cells are filled by `fillInputL` so `generateScale`'s bilinear lookup
+    // doesn't crash, but those filled values claim a perfect L match here that the
+    // anchor has zero data to support.
+    const totalSamples =
+      SAMPLE_COUNT_PER_ABC[i][bandLow][bkLow] +
+      SAMPLE_COUNT_PER_ABC[i][bandHigh][bkLow] +
+      SAMPLE_COUNT_PER_ABC[i][bandLow][bkHigh] +
+      SAMPLE_COUNT_PER_ABC[i][bandHigh][bkHigh]
+    if (totalSamples === 0) continue
+
     // Typical input.L and input.V for this step, interpolated across (band, bucket).
     const lA = INPUT_L_PER_ABC[i][bandLow][bkLow]
     const lB = INPUT_L_PER_ABC[i][bandHigh][bkLow]
@@ -230,7 +237,7 @@ export function detectAnchorStep(hex: string): ScaleStep {
     const score = dL * dL + ANCHOR_VIVIDNESS_WEIGHT * dV * dV
     if (score < bestScore) {
       bestScore = score
-      best = STANDARD_STEPS[i] as ScaleStep
+      best = STANDARD_STEPS[i]
     }
   }
   return best
@@ -331,12 +338,4 @@ function lerpAngle(a: number, b: number, t: number): number {
   if (diff > 180) diff -= 360
   if (diff < -180) diff += 360
   return a + diff * t
-}
-
-/** Circular mean of two angles in degrees (shortest-path midpoint). */
-function circularMeanAngle(a: number, b: number): number {
-  let diff = b - a
-  if (diff > 180) diff -= 360
-  if (diff < -180) diff += 360
-  return ((a + diff / 2) + 360) % 360
 }

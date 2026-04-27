@@ -167,6 +167,13 @@ export function generateSamples(set: SampleSet): Sample[] {
       if (s) samples.push(s)
     }
 
+    // User-flagged samples: specific colors where the algorithm's output diverged from
+    // the API badly enough to warrant adding ground-truth API data to the training set.
+    for (const hex of ['#859991']) {
+      const s = makeSampleFromHex(hex, `corner/user-flagged/${hex.slice(1)}`)
+      if (s) samples.push(s)
+    }
+
     // 5. Max-chroma at 12 hues, L = 0.5 (95% of sRGB gamut max C)
     for (const h of hues12) {
       const clamped = clampChroma({ mode: 'oklch', l: 0.5, c: 1, h }, 'oklch')
