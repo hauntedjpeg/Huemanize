@@ -155,6 +155,15 @@ export function generateSamples(set: SampleSet): Sample[] {
       if (s) samples.push(s)
     }
 
+    // 3b. Mid-light grays in input.L bin 1 (0.70–0.92) — the API uses input-relative
+    // ladders here (not canonical), so this bin needs its own samples to learn the curve.
+    // Without these, the bin's median ladder would be defined by a single sample (#bebebe)
+    // and produce wrong scales for nearby grays like #d7d7d7.
+    for (const hex of ['#aaaaaa', '#c0c0c0', '#cccccc', '#dadada', '#e3e3e3']) {
+      const s = makeSampleFromHex(hex, `corner/mid-gray/${hex.slice(1)}`)
+      if (s) samples.push(s)
+    }
+
     // 4. Pure-axis near neighbors (12) — 1–2 unit perturbations of primaries
     const nearAxis = [
       '#fe0000', '#ff0010', '#ff1000',

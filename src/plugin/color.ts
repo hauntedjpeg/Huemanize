@@ -3,7 +3,8 @@ import { colornames as colorNameList } from 'color-name-list'
 import { type ScaleStep, type ScaleEntry } from '../ui/types'
 import {
   L_LADDER,
-  ACHROMATIC_LADDER,
+  ACHROMATIC_L_PER_L_BIN,
+  ACHROMATIC_L_BIN_EDGES,
   HUE_BANDS,
   BAND_WIDTH_DEG,
   STANDARD_STEPS,
@@ -21,15 +22,6 @@ import {
 } from './uicolors-tables'
 
 const ACHROMATIC_INPUT_C_THRESHOLD = 0.01
-
-/**
- * When an achromatic input's L is more than this far from its anchor's canonical L
- * (L_LADDER[anchorIdx]), the per-step ladder is more accurate than input-relative
- * interpolation. The natural anchor-detection gap for a gray with L=0 (black) anchored
- * at step 950 is L_LADDER[950]≈0.27, so 0.15 is comfortably below that — but well above
- * the gap a typical "near-canonical" gray would produce.
- */
-const ACHROMATIC_ABSOLUTE_FALLBACK_DL = 0.15
 
 /**
  * Generate a Tailwind-style 50-950 color scale from a hex input.
@@ -51,7 +43,6 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
   const isAchromatic = cIn < ACHROMATIC_INPUT_C_THRESHOLD
 
   const anchorIdx = STANDARD_STEPS.indexOf(anchorStep)
-  const lastIdx = STANDARD_STEPS.length - 1
 
   // Hue band interpolation parameters (between adjacent bands).
   const { bandLow, bandHigh, t: bandT } = bandLookup(hIn)
@@ -89,31 +80,12 @@ export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] 
     let l: number, c: number, h: number
 
     if (isAchromatic) {
-      // Inputs whose L is far from this anchor's canonical L (e.g. pure black anchored at 950)
-      // can't use the input-relative lerp — it would push every step toward lIn and crush the
-      // far end of the scale. Fall back to absolute ladder values for non-anchor steps.
-      if (Math.abs(lIn - L_LADDER[anchorIdx]) > ACHROMATIC_ABSOLUTE_FALLBACK_DL) {
-        l = ACHROMATIC_LADDER[i].l
-      } else {
-        // Linear-through-input for grays whose L sits near the anchor's typical L.
-        const lEndLight = ACHROMATIC_LADDER[0].l
-        const lEndDark = ACHROMATIC_LADDER[lastIdx].l
-        if (i < anchorIdx) {
-          l = lerp(lEndLight, lIn, anchorIdx === 0 ? 0 : i / anchorIdx)
-        } else if (i === lastIdx) {
-          l = lEndDark
-        } else if (anchorIdx >= lastIdx) {
-          l = ACHROMATIC_LADDER[i].l
-        } else {
-          const dPenult = lastIdx - 1
-          if (anchorIdx >= dPenult) {
-            l = ACHROMATIC_LADDER[i].l
-          } else {
-            const t = (i - anchorIdx) / (dPenult - anchorIdx)
-            l = lerp(lIn, ACHROMATIC_LADDER[dPenult].l, t)
-          }
-        }
-      }
+      // Per-input-L-bin ladder. The API uses three distinct gray ladder shapes keyed by
+      // input.L: dark canonical (#000000 family), custom mid-light (#bebebe-style), and
+      // light canonical (#ffffff family). Anchor isn't the right axis — at anchor=400,
+      // #7f7f7f (L=0.59, dark canonical) and #bebebe (L=0.78, custom) share an anchor but
+      // produce different scales. Bin by input.L instead.
+      l = ACHROMATIC_L_PER_L_BIN[achromaticBin(lIn)][i]
       c = 0
       h = 0
     } else {
@@ -330,6 +302,12 @@ function vividnessOf(l: number, c: number, h: number): number {
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
+}
+
+function achromaticBin(l: number): number {
+  if (l < ACHROMATIC_L_BIN_EDGES[0]) return 0
+  if (l < ACHROMATIC_L_BIN_EDGES[1]) return 1
+  return 2
 }
 
 /** Linear interpolation between two angle deltas (in degrees), shortest-path. */

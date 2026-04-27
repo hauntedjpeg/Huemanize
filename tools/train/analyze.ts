@@ -47,10 +47,26 @@ interface PerStepStats {
 
 interface BandStepKey { band: number; step: StandardStep }
 
+// Achromatic input-L bins. The API uses three distinct ladder shapes for grays, keyed by
+// input.L (not anchor): a "dark canonical" scale (e.g. #000000 → step 50=#f6f6f6, step
+// 950=#262626), a "light canonical" scale (#ffffff → step 50=#fafafa, step 950=#292929),
+// and a custom scale for mid-light grays like #bebebe. Bin edges 0.70 / 0.92 picked from
+// training: #8f8f8f (L≈0.65) uses dark canonical, #bebebe (L=0.78) uses custom,
+// #eeeeee (L=0.94) uses light canonical. The 0.70 edge buffers #8f8f8f away from the
+// custom bin which only has one training sample.
+const ACHROMATIC_L_BIN_EDGES = [0.70, 0.92]
+
+function achromaticLBin(l: number): number {
+  if (l < ACHROMATIC_L_BIN_EDGES[0]) return 0
+  if (l < ACHROMATIC_L_BIN_EDGES[1]) return 1
+  return 2
+}
+
 function summarize(entries: CacheEntry[]): {
   byBandStep: Map<string, PerStepStats>
   globalLByStep: Map<StandardStep, number>
   achromaticByStep: Map<StandardStep, OklchPoint>
+  achromaticByLBin: number[][][]  // [bin][stepIdx] = list of output L values
 } {
   const buckets = new Map<string, {
     L: number[]
@@ -61,6 +77,13 @@ function summarize(entries: CacheEntry[]): {
 
   const globalLBuckets = new Map<StandardStep, number[]>()
   const achromaticBuckets = new Map<StandardStep, { L: number[]; C: number[]; H: number[] }>()
+  // [bin][stepIdx] = list of output L values for achromatic inputs in this bin.
+  // Anchor doesn't matter — what matters is the input's L position on the gray axis.
+  const achromaticByLBin: number[][][] = [
+    STANDARD_STEPS.map(() => [] as number[]),
+    STANDARD_STEPS.map(() => [] as number[]),
+    STANDARD_STEPS.map(() => [] as number[]),
+  ]
 
   for (const entry of entries) {
     const inputOklch = toOklch(entry.input)
@@ -85,6 +108,14 @@ function summarize(entries: CacheEntry[]): {
         if (!achromaticBuckets.has(step)) achromaticBuckets.set(step, { L: [], C: [], H: [] })
         const a = achromaticBuckets.get(step)!
         a.L.push(stepOklch.l); a.C.push(stepOklch.c); a.H.push(stepOklch.h)
+
+        // Bucket by input L bin. Skip the anchor step itself — at the anchor step the API
+        // substitutes the input, so its L equals input.L (a tautology that would skew the
+        // bin's "typical anchor-step output L" toward the bin's typical input L).
+        if (!isAnchor) {
+          const bin = achromaticLBin(inputOklch.l)
+          achromaticByLBin[bin][STANDARD_STEPS.indexOf(step)].push(stepOklch.l)
+        }
         continue
       }
 
@@ -126,7 +157,7 @@ function summarize(entries: CacheEntry[]): {
     achromaticByStep.set(step, { l: median(b.L), c: median(b.C), h: median(b.H) })
   }
 
-  return { byBandStep, globalLByStep, achromaticByStep }
+  return { byBandStep, globalLByStep, achromaticByStep, achromaticByLBin }
 }
 
 /**
@@ -183,7 +214,7 @@ function computeNaturalAnchorAtPeak(entries: CacheEntry[]): (StandardStep | null
 }
 
 function buildTables(entries: CacheEntry[]) {
-  const { byBandStep, globalLByStep, achromaticByStep } = summarize(entries)
+  const { byBandStep, globalLByStep, achromaticByStep, achromaticByLBin } = summarize(entries)
 
   // Per-band ladders: bands × steps
   const lLadder: number[][] = []  // [band][stepIdx]
@@ -211,8 +242,15 @@ function buildTables(entries: CacheEntry[]) {
     hDrift.push(hRow)
   }
 
-  // Achromatic (grays) ladder
+  // Achromatic (grays) ladder — global pooled median, used as fallback.
   const achromatic = STANDARD_STEPS.map((step) => achromaticByStep.get(step) ?? { l: 0.5, c: 0, h: 0 })
+
+  // Per-input-L-bin achromatic ladder: [bin][stepIdx]. Median output L per step within each
+  // input.L bin. NaN where a bin has no samples for that step — filled at emit time using the
+  // global achromatic ladder.
+  const achromaticLPerLBin: number[][] = achromaticByLBin.map((binSteps) =>
+    binSteps.map((ls) => ls.length ? median(ls) : NaN),
+  )
 
   // Global L ladder (used as fallback / for default L when only L matters)
   const globalL = STANDARD_STEPS.map((step) => globalLByStep.get(step) ?? 0.5)
@@ -436,6 +474,7 @@ function buildTables(entries: CacheEntry[]) {
     cEnvelope,
     hDrift,
     achromatic,
+    achromaticLPerLBin,
     globalL,
     perAnchor,
     absoluteCPerBand,
@@ -726,6 +765,22 @@ function fillVec(table: number[][], fallback: number): number[][] {
   return out
 }
 
+/**
+ * Fill empty cells in [binIdx][stepIdx] with the global achromatic ladder for that step.
+ * The mid bin in particular often has only one sample (#bebebe in current training); fully
+ * empty bins or empty steps within a bin get the pooled global median — preferable to
+ * borrowing from a neighboring bin which may use a structurally different ladder shape.
+ */
+function fillAchromaticLPerLBin(table: number[][], achromaticGlobal: { l: number; c: number; h: number }[]): number[][] {
+  const out = table.map((row) => [...row])
+  for (let bin = 0; bin < out.length; bin++) {
+    for (let s = 0; s < out[bin].length; s++) {
+      if (!Number.isFinite(out[bin][s])) out[bin][s] = achromaticGlobal[s]?.l ?? 0.5
+    }
+  }
+  return out
+}
+
 function emitTypeScript(tables: ReturnType<typeof buildTables>): string {
   // Fill sparse cells in per-anchor tables before serializing.
   const filledL = fillTable(tables.perAnchor.L, 0.5)
@@ -733,6 +788,7 @@ function emitTypeScript(tables: ReturnType<typeof buildTables>): string {
   const filledH = fillTable(tables.perAnchor.H, 0.0)
   const filledInputC = fillVec(tables.perAnchor.inputCMedian, 0.05)
   const filledInputL = fillVec(tables.perAnchor.inputLMedian, 0.5)
+  const filledAchromaticL = fillAchromaticLPerLBin(tables.achromaticLPerLBin, tables.achromatic)
 
   return `// Auto-generated from tools/train/analyze.ts on ${tables.meta.generatedAt}
 // Source: ${tables.meta.sampleCount} cached uicolors.app responses
@@ -757,7 +813,19 @@ export const C_ENVELOPE_PER_BAND: readonly (readonly number[])[] = ${JSON.string
 export const H_DRIFT_PER_BAND: readonly (readonly number[])[] = ${JSON.stringify(tables.hDrift)}
 
 // For achromatic inputs (input chroma < ~0.01): the (l, c, h) the API returns at each step.
+// Pooled median across all gray training inputs. Used as fallback when a bin is empty.
 export const ACHROMATIC_LADDER: readonly { l: number; c: number; h: number }[] = ${JSON.stringify(tables.achromatic)}
+
+// Bin edges on input.L for the per-bin achromatic ladder lookup.
+// L < edges[0] → dark canonical; L < edges[1] → custom (input-relative); else → light canonical.
+export const ACHROMATIC_L_BIN_EDGES: readonly number[] = ${JSON.stringify(ACHROMATIC_L_BIN_EDGES)}
+
+// Per-input-L-bin achromatic L ladder: [binIdx][stepIdx]. Median output L per step, bucketed
+// by the input's L position. Bin 0 (dark, e.g. #000000–#8f8f8f): the API's "dark canonical"
+// scale. Bin 2 (light, e.g. #eeeeee–#ffffff): the API's "light canonical" scale. Bin 1
+// (custom mid-light range like #bebebe): an input-relative scale where the input's L sets
+// the curve mid-point. Empty cells fall back to ACHROMATIC_LADDER.l.
+export const ACHROMATIC_L_PER_L_BIN: readonly (readonly number[])[] = ${JSON.stringify(filledAchromaticL)}
 
 // Per-anchor median L: [anchorIdx][hueBand][stepIdx]
 export const L_PER_ANCHOR_BAND: readonly (readonly (readonly number[])[])[] = ${JSON.stringify(filledL)}
