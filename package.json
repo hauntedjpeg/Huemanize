@@ -9,11 +9,14 @@
     "dev": "concurrently \"pnpm run dev:plugin\" \"pnpm run dev:ui\"",
     "dev:plugin": "esbuild src/plugin/code.ts --bundle --platform=node --target=es2017 --outfile=code.js --format=iife --global-name=plugin --watch",
     "dev:ui": "vite build --watch",
-    "typecheck": "tsc --noEmit -p tsconfig.plugin.json && tsc --noEmit -p tsconfig.ui.json"
+    "typecheck": "tsc --noEmit -p tsconfig.plugin.json && tsc --noEmit -p tsconfig.ui.json",
+    "train:fetch": "node --env-file=tools/train/.env --import tsx tools/train/fetch.ts",
+    "train:analyze": "node --env-file=tools/train/.env --import tsx tools/train/analyze.ts",
+    "train:compare": "node --env-file=tools/train/.env --import tsx tools/train/compare.ts",
+    "train:report": "node --env-file=tools/train/.env --import tsx tools/train/report.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
-    "apcach": "^0.6.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "color-name-list": "^14.36.0",
@@ -39,6 +42,7 @@
     "esbuild": "^0.19.8",
     "stera-icons": "8.0.14",
     "tailwindcss": "^4.2.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.0",
     "vite": "^6.0.0",
     "vite-plugin-singlefile": "^2.0.0"

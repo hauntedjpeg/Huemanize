@@ -6,7 +6,7 @@ figma.showUI(__html__, { width: 480, height: 400, themeColors: true })
 figma.ui.onmessage = async (msg: PluginMessage) => {
   try {
     if (msg.type === 'generate-scale') {
-      const scale = generateScale(msg.hex, msg.anchorStep, msg.curveType)
+      const scale = generateScale(msg.hex, msg.anchorStep)
       const suggestedName = suggestColorName(msg.hex)
       respond({ type: 'scale-generated', scale, suggestedName })
     } else if (msg.type === 'get-collections') {
@@ -41,7 +41,7 @@ figma.ui.onmessage = async (msg: PluginMessage) => {
         }).filter((c) => c.groups.length > 0),
       })
     } else if (msg.type === 'add-to-variables') {
-      const scale = generateScale(msg.hex, msg.anchorStep, msg.curveType)
+      const scale = generateScale(msg.hex, msg.anchorStep)
       await createColorVariables(scale, msg.colorName, msg.collectionId)
       respond({ type: 'added-to-variables' })
     }

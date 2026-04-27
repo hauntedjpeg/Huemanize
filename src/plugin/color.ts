@@ -1,218 +1,184 @@
-import { oklch, formatHex, parse } from 'culori'
+import { oklch, parse, formatHex, clampChroma } from 'culori'
 import { colornames as colorNameList } from 'color-name-list'
-import { apcach, crToBg, calcContrast } from 'apcach'
-import { SCALE_STEPS, type ScaleStep, type ScaleEntry, type CurveType } from '../ui/types'
-import { generateTailwindScale } from './tailwind-curve'
+import { SCALE_STEPS, type ScaleStep, type ScaleEntry } from '../ui/types'
+import {
+  L_LADDER,
+  ACHROMATIC_LADDER,
+  HUE_BANDS,
+  BAND_WIDTH_DEG,
+  STANDARD_STEPS,
+  L_PER_ABC,
+  C_PER_ABC,
+  H_DRIFT_PER_ABC,
+  INPUT_L_PER_ABC,
+  INPUT_V_PER_ABC,
+  VIVIDNESS_BUCKET_EDGES,
+  type StandardStep,
+} from './uicolors-tables'
+
+const ACHROMATIC_INPUT_C_THRESHOLD = 0.01
+
+/**
+ * When an achromatic input's L is more than this far from its anchor's canonical L
+ * (L_LADDER[anchorIdx]), the per-step ladder is more accurate than input-relative
+ * interpolation. The natural anchor-detection gap for a gray with L=0 (black) anchored
+ * at step 950 is L_LADDER[950]≈0.27, so 0.15 is comfortably below that — but well above
+ * the gap a typical "near-canonical" gray would produce.
+ */
+const ACHROMATIC_ABSOLUTE_FALLBACK_DL = 0.15
 
 /**
  * Generate a Tailwind-style 50-950 color scale from a hex input.
  *
- * Pipeline: hex -> OKLCH -> generate 11 OKLCH colors -> hex[]
+ * Trained against the uicolors.app `tailwindcss3` API. Input is pinned at the
+ * detected (or chosen) anchor step; other steps use trained per-hue-band tables
+ * for L (lightness), C (chroma envelope multiplier), and H (hue drift).
  *
- * The input color is pinned at `anchorStep`. Steps lighter than the anchor
- * interpolate toward white; steps darker interpolate toward black. Chroma
- * tapers naturally toward the extremes (OKLCH gamut narrows near L=0 and L=1).
- *
- * `curveType` controls stepping within each segment:
- * - 'linear': uniform perceptual spacing
- * - 'fine-ends': quadratic easing — smaller deltas near steps 50 and 950,
- *   larger deltas near the anchor (Tailwind-style feel)
- * - 'fine-ends-contrast': fine-ends shape with a per-step APCA Lc floor.
- *   Light steps must clear a floor against black; dark steps against white.
- *   When fine-ends falls short, lightness is pushed via apcach to meet the
- *   floor, then chroma is re-tapered through the existing envelope.
- * - 'tailwind-*': hue-aware curves modeled on Tailwind v4. These ignore
- *   `anchorStep` and auto-place the input at the step closest to its lightness.
+ * Step 925 is Huemanize-specific: interpolated as the OKLCH midpoint between
+ * matched 900 and 950.
  */
-export function generateScale(hex: string, anchorStep: ScaleStep, curveType: CurveType): ScaleEntry[] {
-  if (curveType === 'tailwind-reference' || curveType === 'tailwind-parametric' || curveType === 'tailwind-hybrid') {
-    return generateTailwindScale(hex, curveType)
-  }
-
+export function generateScale(hex: string, anchorStep: ScaleStep): ScaleEntry[] {
   const parsed = parse(hex)
   if (!parsed) throw new Error('Invalid color')
 
-  const anchor = oklch(parsed)
-  if (!anchor) throw new Error('Could not convert to OKLCH')
+  const inp = oklch(parsed)
+  if (!inp) throw new Error('Could not convert to OKLCH')
 
-  const anchorL = anchor.l ?? 0.5
-  const anchorC = anchor.c ?? 0
-  const anchorH = anchor.h ?? 0
-  const isAchromatic = anchorC < 0.008
+  const lIn = inp.l ?? 0
+  const cIn = inp.c ?? 0
+  const hIn = inp.h ?? 0
+  const isAchromatic = cIn < ACHROMATIC_INPUT_C_THRESHOLD
 
-  const anchorIndex = SCALE_STEPS.indexOf(anchorStep)
+  const anchorIdx = STANDARD_STEPS.indexOf(anchorStep as StandardStep)
+  const lastIdx = STANDARD_STEPS.length - 1
 
-  return SCALE_STEPS.map((step, index) => {
-    let l: number
-    let c: number
-    let segment: 'light' | 'dark' | 'anchor'
+  // Hue band interpolation parameters (between adjacent bands).
+  const { bandLow, bandHigh, t: bandT } = bandLookup(hIn)
 
-    if (index === anchorIndex) {
-      l = anchorL
-      c = anchorC
-      segment = 'anchor'
-    } else if (index < anchorIndex) {
-      // Lighter segment: t goes 0 (step 50) → 1 (anchor).
-      // 0.97 keeps 50 from being pure white and retains a hint of hue.
-      const t = index / anchorIndex
-      const tEased = easeT(t, curveType, 'light')
-      l = lerp(0.99, anchorL, tEased)
-      const minChromaRatio = 0.06
-      c = isAchromatic ? 0 : anchorC * (minChromaRatio + (1 - minChromaRatio) * tEased)
-      segment = 'light'
-    } else {
-      // Darker segment: t goes 0 (anchor) → 1 (step 950).
-      // Dark end is capped at 0.19 but always kept below anchorL so the
-      // scale stays monotonically darker even for very dark anchor colors.
-      const darkEndL = Math.min(0.19, anchorL * 0.4)
-      const t = (index - anchorIndex) / (SCALE_STEPS.length - 1 - anchorIndex)
-      const tEased = easeT(t, curveType, 'dark')
-      l = lerp(anchorL, darkEndL, tEased)
-      c = isAchromatic ? 0 : anchorC * chromaFactor(l, anchorL)
-      // Absolute dark-side chroma ceiling: c ≤ l² × K. Prevents vivid inputs
-      // (e.g. #0000FF with anchorC ≈ 0.31) from carrying excessive chroma into
-      // very dark steps. Quadratic shape grows with L so steps near the anchor
-      // are unaffected while the darkest steps land at Tailwind-like chroma.
-      if (!isAchromatic) c = Math.min(c, l * l * DARK_CHROMA_CAP_K)
-      segment = 'dark'
-    }
+  // Vividness bucket interpolation parameters (between adjacent buckets).
+  const { bkLow, bkHigh, t: bkT } = bucketLookup(lIn, cIn, hIn)
 
-    if (curveType === 'fine-ends-contrast' && segment !== 'anchor') {
-      ;({ l, c } = enforceContrastFloor(l, c, anchorH, anchorL, step, segment, isAchromatic))
-    }
-
-    const result = formatHex({ mode: 'oklch', l, c, h: anchorH })
-
-    return {
-      step,
-      hex: result || '#000000',
-      isAnchor: index === anchorIndex,
-    }
-  })
-}
-
-/**
- * Map raw segment progress `t` (0..1) through the selected curve.
- * For 'fine-ends': ease-in on the light segment (slow near step 50),
- * ease-out on the dark segment (slow near step 950). Both compress the
- * outer ends of the scale and expand near the anchor.
- */
-// Exponent for the 'fine-ends' curve. Higher = tighter ends, steeper middle.
-// 2.0 = quadratic (ends too loose), 3.0 = cubic (ends too tight), 2.5 = sweet spot.
-const FINE_ENDS_POWER = 2.2
-
-// Absolute ceiling on dark-side chroma: c ≤ l² × K. Quadratic in L so the
-// envelope is generous near the anchor (no cliff at step 600) and tight near
-// black. Calibrated against Tailwind: at L ≈ 0.18 (our darkest step) this
-// gives a cap of ~0.08, landing vivid inputs like #0000FF at blue-950-like
-// chroma while leaving already-muted inputs untouched.
-const DARK_CHROMA_CAP_K = 2.5
-
-function easeT(t: number, curveType: CurveType, segment: 'light' | 'dark'): number {
-  if (curveType === 'linear') return t
-  if (segment === 'light') return Math.pow(t, FINE_ENDS_POWER)
-  return 1 - Math.pow(1 - t, FINE_ENDS_POWER)
-}
-
-/**
- * Chroma scaling factor based on distance from anchor lightness.
- * Tapers chroma toward white (L=1) and black (L=0) using a parabolic curve,
- * mimicking how the OKLCH gamut naturally narrows at the extremes. An
- * additional absolute ceiling is applied on the dark side in `generateScale`
- * to keep very saturated inputs from carrying excess chroma into dark steps.
- */
-function chromaFactor(l: number, anchorL: number): number {
-  const maxDist = Math.max(anchorL, 1 - anchorL)
-  if (maxDist === 0) return 0
-  const factor = 1 - Math.pow((l - anchorL) / maxDist, 2)
-  return Math.max(0.01, factor)
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t
-}
-
-/**
- * Per-step APCA Lc floors for the 'fine-ends-contrast' curve.
- *
- * Light steps (50–400) are checked against black (#000): if the step is to
- * be a usable surface for dark text/UI, it must clear this floor.
- * Dark steps (600–950) are checked against white (#fff): same logic for
- * light text on dark surfaces.
- *
- * Numbers follow common APCA targets — Lc 90 for body text, 75 for large
- * text, 60 for non-text UI, 45 for decorative. Steps near the middle (and
- * the anchor itself) are intentionally unconstrained.
- */
-const CONTRAST_FLOORS: Partial<Record<ScaleStep, number>> = {
-  50: 90,
-  100: 90,
-  200: 75,
-  300: 60,
-  400: 45,
-  600: 45,
-  700: 60,
-  800: 75,
-  900: 90,
-  925: 90,
-  950: 90,
-}
-
-const REF_BG_LIGHT_SEGMENT = '#000000'
-const REF_BG_DARK_SEGMENT = '#ffffff'
-
-/**
- * If the (l, c, h) produced by fine-ends doesn't meet the per-step APCA Lc
- * floor against its reference background, push lightness via apcach until it
- * does, then re-taper chroma through the same envelope so the result stays
- * consistent with the curve.
- *
- * Search direction is fixed by segment ('lighter' for the light side, since
- * the step must be lighter than black; 'darker' for the dark side).
- */
-function enforceContrastFloor(
-  l: number,
-  c: number,
-  h: number,
-  anchorL: number,
-  step: ScaleStep,
-  segment: 'light' | 'dark',
-  isAchromatic: boolean,
-): { l: number; c: number } {
-  const floor = CONTRAST_FLOORS[step]
-  if (floor === undefined) return { l, c }
-
-  const refBg = segment === 'light' ? REF_BG_LIGHT_SEGMENT : REF_BG_DARK_SEGMENT
-  const currentHex = formatHex({ mode: 'oklch', l, c, h })
-  if (!currentHex) return { l, c }
-
-  const currentLc = calcContrast(currentHex, refBg, 'apca', 'srgb')
-  if (currentLc >= floor) return { l, c }
-
-  const searchDirection = segment === 'light' ? 'lighter' : 'darker'
-  const solved = apcach(crToBg(refBg, floor, 'apca', searchDirection), c, h, 100, 'srgb')
-
-  let newL = solved.lightness
-  // Clamp to keep the scale monotonic relative to the anchor.
-  if (segment === 'light' && newL < anchorL) newL = anchorL
-  if (segment === 'dark' && newL > anchorL) newL = anchorL
-
-  let newC = c
-  if (!isAchromatic) {
-    if (segment === 'dark') {
-      newC = Math.min(c, c * chromaFactor(newL, anchorL) / Math.max(chromaFactor(l, anchorL), 0.01))
-      newC = Math.min(newC, newL * newL * DARK_CHROMA_CAP_K)
-    }
-  } else {
-    newC = 0
+  // Per-anchor + per-band + per-chroma-bucket lookups, with bilinear interpolation
+  // across the (band, bucket) grid.
+  const lookup4 = (table: typeof L_PER_ABC, i: number): number => {
+    const a = table[anchorIdx][bandLow][bkLow][i]
+    const b = table[anchorIdx][bandHigh][bkLow][i]
+    const c = table[anchorIdx][bandLow][bkHigh][i]
+    const d = table[anchorIdx][bandHigh][bkHigh][i]
+    return lerp(lerp(a, b, bandT), lerp(c, d, bandT), bkT)
+  }
+  const lookupAngle = (table: typeof H_DRIFT_PER_ABC, i: number): number => {
+    const a = table[anchorIdx][bandLow][bkLow][i]
+    const b = table[anchorIdx][bandHigh][bkLow][i]
+    const c = table[anchorIdx][bandLow][bkHigh][i]
+    const d = table[anchorIdx][bandHigh][bkHigh][i]
+    return lerpAngle(lerpAngle(a, b, bandT), lerpAngle(c, d, bandT), bkT)
   }
 
-  return { l: newL, c: newC }
+  // Compute the OKLCH for each standard step (the 11 uicolors steps)
+  const standardOklch: { step: StandardStep; l: number; c: number; h: number }[] = []
+
+  for (let i = 0; i < STANDARD_STEPS.length; i++) {
+    const step = STANDARD_STEPS[i]
+
+    if (step === anchorStep) {
+      standardOklch.push({ step, l: lIn, c: cIn, h: hIn })
+      continue
+    }
+
+    let l: number, c: number, h: number
+
+    if (isAchromatic) {
+      // Inputs whose L is far from this anchor's canonical L (e.g. pure black anchored at 950)
+      // can't use the input-relative lerp — it would push every step toward lIn and crush the
+      // far end of the scale. Fall back to absolute ladder values for non-anchor steps.
+      if (Math.abs(lIn - L_LADDER[anchorIdx]) > ACHROMATIC_ABSOLUTE_FALLBACK_DL) {
+        l = ACHROMATIC_LADDER[i].l
+      } else {
+        // Linear-through-input for grays whose L sits near the anchor's typical L.
+        const lEndLight = ACHROMATIC_LADDER[0].l
+        const lEndDark = ACHROMATIC_LADDER[lastIdx].l
+        if (i < anchorIdx) {
+          l = lerp(lEndLight, lIn, anchorIdx === 0 ? 0 : i / anchorIdx)
+        } else if (i === lastIdx) {
+          l = lEndDark
+        } else if (anchorIdx >= lastIdx) {
+          l = ACHROMATIC_LADDER[i].l
+        } else {
+          const dPenult = lastIdx - 1
+          if (anchorIdx >= dPenult) {
+            l = ACHROMATIC_LADDER[i].l
+          } else {
+            const t = (i - anchorIdx) / (dPenult - anchorIdx)
+            l = lerp(lIn, ACHROMATIC_LADDER[dPenult].l, t)
+          }
+        }
+      }
+      c = 0
+      h = 0
+    } else {
+      l = lookup4(L_PER_ABC, i)
+      c = lookup4(C_PER_ABC, i)
+      h = (hIn + lookupAngle(H_DRIFT_PER_ABC, i) + 360) % 360
+    }
+
+    // Keep chroma inside the sRGB gamut for this (l, h).
+    const clamped = clampChroma({ mode: 'oklch', l, c, h }, 'oklch')
+    standardOklch.push({
+      step,
+      l: clamped.l ?? l,
+      c: clamped.c ?? 0,
+      h: clamped.h ?? h,
+    })
+  }
+
+  // Build the 12-step output, splicing 925 as the OKLCH midpoint of 900 and 950.
+  const out: ScaleEntry[] = []
+  const s900 = standardOklch.find((s) => s.step === 900)!
+  const s950 = standardOklch.find((s) => s.step === 950)!
+
+  for (const step of SCALE_STEPS) {
+    let hexOut: string
+    if (step === 925) {
+      const mid = {
+        mode: 'oklch' as const,
+        l: (s900.l + s950.l) / 2,
+        c: (s900.c + s950.c) / 2,
+        h: circularMeanAngle(s900.h, s950.h),
+      }
+      hexOut = formatHex(mid) ?? '#000000'
+    } else {
+      const s = standardOklch.find((x) => x.step === step)!
+      hexOut = formatHex({ mode: 'oklch', l: s.l, c: s.c, h: s.h }) ?? '#000000'
+    }
+    out.push({ step, hex: hexOut, isAnchor: step === anchorStep })
+  }
+
+  return out
 }
 
 /**
- * Detect the most appropriate anchor step for a given hex color based on its
- * OKLCH lightness. Used to auto-set a smart default when a new color is entered.
+ * Weight on Δvividness² in the multi-feature anchor score: dist² = ΔL² + α·ΔV².
+ *
+ * Vividness is a tiebreaker for cases where multiple anchors have similar typical input L.
+ * E.g. vivid orange #e58e00 (L≈0.72, v=1.0) matches step 400 (med L=0.72, V=0.87) and
+ * step 500 (med L=0.78, V=1.0) on L alone, but the API anchors at 500. The V signal lets
+ * us prefer the deeper (more saturation-loyal) anchor for gamut-pinned inputs.
+ *
+ * α=0.5 picked from a 0.0–2.0 sweep against the cached training+validation responses, paired
+ * with center-based band interpolation: tied for best validation median (0.0144) and best
+ * validation p95 (0.0670). Higher weights swap too aggressively and hurt anchor agreement.
+ */
+const ANCHOR_VIVIDNESS_WEIGHT = 0.5
+
+/**
+ * Detect the most appropriate anchor step for a given hex color.
+ *
+ * Trained on the API's actual anchor placements: for each (hue band, chroma
+ * bucket) we know the typical (L, vividness) of inputs the API anchored at each step.
+ * We pick the step minimizing weighted (ΔL² + α·ΔV²). The V term captures hue-aware
+ * behavior like vivid bright orange anchoring at step 500 instead of step 400, where
+ * both have similar typical L but step 500's typical V matches gamut-pinned inputs.
  */
 export function detectAnchorStep(hex: string): ScaleStep {
   const parsed = parse(hex)
@@ -222,29 +188,49 @@ export function detectAnchorStep(hex: string): ScaleStep {
   if (!color) return 600
 
   const l = color.l ?? 0.5
+  const c = color.c ?? 0
+  const h = color.h ?? 0
 
-  const stepLightness: [ScaleStep, number][] = [
-    [50,  0.97],
-    [100, 0.93],
-    [200, 0.86],
-    [300, 0.76],
-    [400, 0.65],
-    [500, 0.54],
-    [600, 0.44],
-    [700, 0.35],
-    [800, 0.26],
-    [900, 0.19],
-    [925, 0.15],
-    [950, 0.11],
-  ]
+  // Achromatic: nearest L on global ladder (no hue band signal)
+  if (c < 0.01) {
+    let best: ScaleStep = 600
+    let bestDist = Infinity
+    for (let i = 0; i < STANDARD_STEPS.length; i++) {
+      const dist = Math.abs(l - L_LADDER[i])
+      if (dist < bestDist) {
+        bestDist = dist
+        best = STANDARD_STEPS[i] as ScaleStep
+      }
+    }
+    return best
+  }
+
+  const { bandLow, bandHigh, t: bandT } = bandLookup(h)
+  const { bkLow, bkHigh, t: bkT } = bucketLookup(l, c, h)
+  const v = vividnessOf(l, c, h)
 
   let best: ScaleStep = 600
-  let bestDist = Infinity
-  for (const [step, target] of stepLightness) {
-    const dist = Math.abs(l - target)
-    if (dist < bestDist) {
-      bestDist = dist
-      best = step
+  let bestScore = Infinity
+  for (let i = 0; i < STANDARD_STEPS.length; i++) {
+    // Typical input.L and input.V for this step, interpolated across (band, bucket).
+    const lA = INPUT_L_PER_ABC[i][bandLow][bkLow]
+    const lB = INPUT_L_PER_ABC[i][bandHigh][bkLow]
+    const lC = INPUT_L_PER_ABC[i][bandLow][bkHigh]
+    const lD = INPUT_L_PER_ABC[i][bandHigh][bkHigh]
+    const targetL = lerp(lerp(lA, lB, bandT), lerp(lC, lD, bandT), bkT)
+
+    const vA = INPUT_V_PER_ABC[i][bandLow][bkLow]
+    const vB = INPUT_V_PER_ABC[i][bandHigh][bkLow]
+    const vC = INPUT_V_PER_ABC[i][bandLow][bkHigh]
+    const vD = INPUT_V_PER_ABC[i][bandHigh][bkHigh]
+    const targetV = lerp(lerp(vA, vB, bandT), lerp(vC, vD, bandT), bkT)
+
+    const dL = l - targetL
+    const dV = v - targetV
+    const score = dL * dL + ANCHOR_VIVIDNESS_WEIGHT * dV * dV
+    if (score < bestScore) {
+      bestScore = score
+      best = STANDARD_STEPS[i] as ScaleStep
     }
   }
   return best
@@ -282,4 +268,75 @@ export function suggestColorName(hex: string): string {
   }
 
   return bestName
+}
+
+/**
+ * Center-based band interpolation: each band's stat represents its center hue (not its left edge).
+ * For 30° bands, band 0 represents H≈15°, band 1 represents H≈45°, etc.
+ *
+ * Why this matters: the median of band 0 (samples in [0°, 30°)) is biased toward the band's
+ * center. Treating it as the value at H=0° (left-edge interpretation) means an input at H=29.95°
+ * gets ~100% weighted toward band 1, which is wrong — H=29.95° is actually closest to band 0's
+ * center (15°) and band 1's center (45°) at roughly equal distance (so it should be a 50/50 blend).
+ *
+ * This is critical at hue boundaries where the underlying behavior is non-smooth (e.g., the
+ * red/orange boundary at H=30° has very different hue-drift behavior in the two bands for vivid
+ * dark colors).
+ */
+function bandLookup(hue: number): { bandLow: number; bandHigh: number; t: number } {
+  const normalized = ((hue % 360) + 360) % 360
+  // Subtract 0.5 so band centers (h = (i+0.5)*W) map to integer band indices
+  const bandFloat = normalized / BAND_WIDTH_DEG - 0.5
+  const bandLowRaw = Math.floor(bandFloat)
+  const bandLow = ((bandLowRaw % HUE_BANDS) + HUE_BANDS) % HUE_BANDS
+  const bandHigh = (bandLow + 1) % HUE_BANDS
+  const t = bandFloat - bandLowRaw
+  return { bandLow, bandHigh, t }
+}
+
+/**
+ * Map an input's gamut-relative vividness to a fractional bucket index for smooth
+ * interpolation between the 3 vividness buckets. Vividness = input.C / max-C-at-(L,H);
+ * 0 → achromatic, 1 → at the sRGB gamut edge for that L/H.
+ *
+ * Bucket 0 (muted, v < EDGES[0]) is centered at the midpoint of [0, EDGES[0]].
+ * Bucket 1 (moderate) at the midpoint of [EDGES[0], EDGES[1]].
+ * Bucket 2 (vivid-for-hue) at the midpoint of [EDGES[1], 1].
+ */
+function bucketLookup(l: number, c: number, h: number): { bkLow: number; bkHigh: number; t: number } {
+  const v = vividnessOf(l, c, h)
+  const e0 = VIVIDNESS_BUCKET_EDGES[0]
+  const e1 = VIVIDNESS_BUCKET_EDGES[1]
+  const centers = [e0 / 2, (e0 + e1) / 2, (e1 + 1) / 2]
+  if (v <= centers[0]) return { bkLow: 0, bkHigh: 0, t: 0 }
+  if (v >= centers[2]) return { bkLow: 2, bkHigh: 2, t: 0 }
+  if (v < centers[1]) {
+    return { bkLow: 0, bkHigh: 1, t: (v - centers[0]) / (centers[1] - centers[0]) }
+  }
+  return { bkLow: 1, bkHigh: 2, t: (v - centers[1]) / (centers[2] - centers[1]) }
+}
+
+function vividnessOf(l: number, c: number, h: number): number {
+  const max = clampChroma({ mode: 'oklch', l, c: 1, h }, 'oklch').c ?? 0
+  return max > 0 ? Math.min(1, c / max) : 0
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
+
+/** Linear interpolation between two angle deltas (in degrees), shortest-path. */
+function lerpAngle(a: number, b: number, t: number): number {
+  let diff = b - a
+  if (diff > 180) diff -= 360
+  if (diff < -180) diff += 360
+  return a + diff * t
+}
+
+/** Circular mean of two angles in degrees (shortest-path midpoint). */
+function circularMeanAngle(a: number, b: number): number {
+  let diff = b - a
+  if (diff > 180) diff -= 360
+  if (diff < -180) diff += 360
+  return ((a + diff / 2) + 360) % 360
 }
