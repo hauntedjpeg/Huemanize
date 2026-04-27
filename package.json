@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
+    "apcach": "^0.6.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "color-name-list": "^14.36.0",

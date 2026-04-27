@@ -1,7 +1,13 @@
 export const SCALE_STEPS = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 925, 950] as const
 export type ScaleStep = (typeof SCALE_STEPS)[number]
 
-export type CurveType = 'linear' | 'fine-ends'
+export type CurveType =
+  | 'linear'
+  | 'fine-ends'
+  | 'fine-ends-contrast'
+  | 'tailwind-reference'
+  | 'tailwind-parametric'
+  | 'tailwind-hybrid'
 
 // UI -> Plugin
 export type PluginMessage =

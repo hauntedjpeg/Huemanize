@@ -10,6 +10,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/ui/**/*.ts", "src/ui/**/*.tsx"],
-  "exclude": ["src/plugin"]
+  "include": ["src/ui/**/*.ts", "src/ui/**/*.tsx", "src/plugin/apcach.d.ts"],
+  "exclude": ["src/plugin/code.ts", "src/plugin/tailwind-curve.ts"]
 }

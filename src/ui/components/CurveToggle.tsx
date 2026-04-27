@@ -1,29 +1,55 @@
+import { SiChevronDown } from "stera-icons"
 import type { CurveType } from "../types"
 
-interface CurveToggleProps {
+interface CurveSelectProps {
   value: CurveType
   onChange: (curve: CurveType) => void
 }
 
-export default function CurveToggle({ value, onChange }: CurveToggleProps) {
+interface OptionDef {
+  value: CurveType
+  label: string
+}
+
+const CUSTOM_OPTIONS: OptionDef[] = [
+  { value: "linear", label: "Linear" },
+  { value: "fine-ends", label: "Fine Ends" },
+  { value: "fine-ends-contrast", label: "Fine Ends + Contrast" },
+]
+
+const TAILWIND_OPTIONS: OptionDef[] = [
+  { value: "tailwind-reference", label: "Tailwind Reference" },
+  { value: "tailwind-parametric", label: "Tailwind Parametric" },
+  { value: "tailwind-hybrid", label: "Tailwind Hybrid" },
+]
+
+export default function CurveToggle({ value, onChange }: CurveSelectProps) {
   return (
     <div className="flex flex-col gap-1">
       <label className="text-[9px]/3.5 font-medium tracking-wide text-figma-text-secondary">
         Curve
       </label>
-      <div className="flex rounded-md bg-figma-bg-secondary overflow-hidden">
-        <button
-          onClick={() => onChange("linear")}
-          className={`flex-1 h-6 text-[11px]/4 rounded-md border border-figma-bg font-medium ${value === "linear" ? "bg-figma-bg border border-figma-border text-figma-text" : "border-transparent text-figma-text-secondary hover:text-figma-text"}`}
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value as CurveType)}
+          className="w-full h-6 appearance-none px-2 text-[11px]/4 rounded-md border border-figma-bg-secondary hover:border-figma-border bg-figma-bg-secondary text-figma-text focus-visible:outline-none focus-visible:border-figma-border-selected"
         >
-          Linear
-        </button>
-        <button
-          onClick={() => onChange("fine-ends")}
-          className={`flex-1 h-6 text-[11px]/4 rounded-md border border-figma-bg font-medium ${value === "fine-ends" ? "bg-figma-bg border border-figma-border text-figma-text" : "border-transparent text-figma-text-secondary hover:text-figma-text"}`}
-        >
-          Fine Ends
-        </button>
+          <optgroup label="Custom">
+            {CUSTOM_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Tailwind">
+            {TAILWIND_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </optgroup>
+        </select>
+        <SiChevronDown
+          className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-figma-text-secondary"
+          size={10}
+        />
       </div>
     </div>
   )
