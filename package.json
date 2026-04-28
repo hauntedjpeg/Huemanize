@@ -1,26 +1,24 @@
 {
   "name": "huemanize",
   "version": "1.0.0",
-  "description": "A Figma plugin for perceptual color interpolation",
+  "description": "Figma plugin port of the Radix Colors custom palette generator.",
   "scripts": {
     "build": "pnpm run build:plugin && pnpm run build:ui",
-    "build:plugin": "esbuild src/plugin/code.ts --bundle --platform=node --target=es2017 --outfile=code.js --format=iife --global-name=plugin",
+    "build:plugin": "esbuild src/plugin/code.ts --bundle --platform=node --target=es2017 --outfile=code.js --format=iife --global-name=plugin --minify-whitespace --legal-comments=none",
     "build:ui": "vite build",
     "dev": "concurrently \"pnpm run dev:plugin\" \"pnpm run dev:ui\"",
-    "dev:plugin": "esbuild src/plugin/code.ts --bundle --platform=node --target=es2017 --outfile=code.js --format=iife --global-name=plugin --watch",
+    "dev:plugin": "esbuild src/plugin/code.ts --bundle --platform=node --target=es2017 --outfile=code.js --format=iife --global-name=plugin --minify-whitespace --legal-comments=none --watch",
     "dev:ui": "vite build --watch",
-    "typecheck": "tsc --noEmit -p tsconfig.plugin.json && tsc --noEmit -p tsconfig.ui.json",
-    "train:fetch": "node --env-file=tools/train/.env --import tsx tools/train/fetch.ts",
-    "train:analyze": "node --env-file=tools/train/.env --import tsx tools/train/analyze.ts",
-    "train:compare": "node --env-file=tools/train/.env --import tsx tools/train/compare.ts",
-    "train:report": "node --env-file=tools/train/.env --import tsx tools/train/report.ts"
+    "typecheck": "tsc --noEmit -p tsconfig.plugin.json && tsc --noEmit -p tsconfig.ui.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
+    "@radix-ui/colors": "^3.0.0",
+    "bezier-easing": "^3.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "color-name-list": "^14.36.0",
-    "culori": "^4.0.2",
+    "colorjs.io": "^0.6.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "tailwind-merge": "^3.5.0",
@@ -34,7 +32,6 @@
   "devDependencies": {
     "@figma/plugin-typings": "^1.82.0",
     "@tailwindcss/vite": "^4.0.0",
-    "@types/culori": "^4.0.1",
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
@@ -43,7 +40,6 @@
     "esbuild": "^0.19.8",
     "stera-icons": "8.0.14",
     "tailwindcss": "^4.2.2",
-    "tsx": "^4.21.0",
     "typescript": "^5.8.0",
     "vite": "^6.0.0",
     "vite-plugin-singlefile": "^2.0.0"

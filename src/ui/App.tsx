@@ -1,10 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { PluginMessage, PluginResponse, ScaleEntry, ScaleStep, CollectionOption, CollectionWithGroups } from './types'
-import { detectAnchorStep } from '../plugin/color'
+import type {
+  PluginMessage,
+  PluginResponse,
+  ScaleEntry,
+  ScaleType,
+  CollectionOption,
+  CollectionWithGroups,
+} from './types'
 import HexInput from './components/HexInput'
 import ScalePreview from './components/ScalePreview'
 import ColorNameInput from './components/ColorNameInput'
 import ModeToggle from './components/ModeToggle'
+import ScaleTypeToggle from './components/ScaleTypeToggle'
+import BackgroundInputs from './components/BackgroundInputs'
 import CollectionSelect from './components/CollectionSelect'
 import GroupSelect from './components/GroupSelect'
 
@@ -14,24 +22,48 @@ function postToPlugin(msg: PluginMessage) {
 
 type Mode = 'add' | 'update'
 
+const STORAGE_PREFIX = 'huemanize:'
+function loadString(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(STORAGE_PREFIX + key) ?? fallback
+  } catch {
+    return fallback
+  }
+}
+function saveString(key: string, value: string) {
+  try {
+    localStorage.setItem(STORAGE_PREFIX + key, value)
+  } catch {
+    // ignore
+  }
+}
+
 export default function App() {
-  const [hex, setHex] = useState('#859991')
-  const [anchorStep, setAnchorStep] = useState<ScaleStep>(() => detectAnchorStep('#3b82f6'))
+  const [hex, setHex] = useState(() => loadString('hex', '#3B82F6'))
+  const [scaleType, setScaleType] = useState<ScaleType>(
+    () => (loadString('scaleType', 'accent') as ScaleType),
+  )
+  const [lightBackground, setLightBackground] = useState(() => loadString('lightBg', '#FFFFFF'))
+  const [darkBackground, setDarkBackground] = useState(() => loadString('darkBg', '#0C0C0C'))
   const [scale, setScale] = useState<ScaleEntry[]>([])
   const [colorName, setColorName] = useState('')
   const [suggestedName, setSuggestedName] = useState('')
-  const [mode, setMode] = useState<Mode>('add')
-  // Add mode
+  const [mode, setMode] = useState<Mode>(() => (loadString('targetMode', 'add') as Mode))
   const [collections, setCollections] = useState<CollectionOption[]>([])
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>('')
-  // Update mode
   const [groupedCollections, setGroupedCollections] = useState<CollectionWithGroups[]>([])
-  const [selectedTarget, setSelectedTarget] = useState<string>('') // "collectionId|groupName"
+  const [selectedTarget, setSelectedTarget] = useState<string>('')
+  const [errorMessage, setErrorMessage] = useState<string>('')
   const prevSuggestion = useRef('')
-  const modeRef = useRef(mode)
   const colorNameRef = useRef(colorName)
-  modeRef.current = mode
   colorNameRef.current = colorName
+
+  // Persist user preferences
+  useEffect(() => saveString('hex', hex), [hex])
+  useEffect(() => saveString('scaleType', scaleType), [scaleType])
+  useEffect(() => saveString('lightBg', lightBackground), [lightBackground])
+  useEffect(() => saveString('darkBg', darkBackground), [darkBackground])
+  useEffect(() => saveString('targetMode', mode), [mode])
 
   // Listen for plugin responses
   useEffect(() => {
@@ -50,7 +82,19 @@ export default function App() {
         setCollections(msg.collections)
       } else if (msg.type === 'all-groups') {
         setGroupedCollections(msg.collections)
-        setSelectedTarget(msg.collections[0]?.groups[0] ? `${msg.collections[0].id}|${msg.collections[0].groups[0]}` : '')
+        setSelectedTarget(
+          msg.collections[0]?.groups[0]
+            ? `${msg.collections[0].id}|${msg.collections[0].groups[0]}`
+            : '',
+        )
+      } else if (msg.type === 'added-to-variables') {
+        setErrorMessage('')
+      } else if (msg.type === 'mismatched-collection') {
+        setErrorMessage(
+          `"${msg.collectionName}" already uses the legacy 50–950 step naming under this color. Switch to a different collection or pick "Create new collection".`,
+        )
+      } else if (msg.type === 'error') {
+        setErrorMessage(msg.message)
       }
     }
     window.addEventListener('message', handleMessage)
@@ -63,38 +107,73 @@ export default function App() {
     postToPlugin({ type: 'get-all-groups' })
   }, [])
 
-  // Generate scale when hex or anchor changes
+  // Generate scale when inputs change
   useEffect(() => {
     if (hex) {
-      postToPlugin({ type: 'generate-scale', hex, anchorStep })
+      postToPlugin({
+        type: 'generate-scale',
+        hex,
+        scaleType,
+        lightBackground,
+        darkBackground,
+      })
     }
-  }, [hex, anchorStep])
+  }, [hex, scaleType, lightBackground, darkBackground])
 
   const handleHexChange = useCallback((newHex: string) => {
     setHex(newHex)
-    setAnchorStep(detectAnchorStep(newHex))
-  }, [])
-
-  const handleAnchorChange = useCallback((step: ScaleStep) => {
-    setAnchorStep(step)
   }, [])
 
   const handleSubmit = useCallback(() => {
+    setErrorMessage('')
     if (mode === 'update') {
       const [collectionId, ...groupParts] = selectedTarget.split('|')
       const groupName = groupParts.join('|')
-      postToPlugin({ type: 'add-to-variables', hex, anchorStep, colorName: groupName, collectionId })
+      postToPlugin({
+        type: 'add-to-variables',
+        hex,
+        scaleType,
+        lightBackground,
+        darkBackground,
+        colorName: groupName,
+        collectionId,
+      })
     } else {
       const name = colorName.trim() || suggestedName || 'Color'
-      postToPlugin({ type: 'add-to-variables', hex, anchorStep, colorName: name, collectionId: selectedCollectionId || undefined })
+      postToPlugin({
+        type: 'add-to-variables',
+        hex,
+        scaleType,
+        lightBackground,
+        darkBackground,
+        colorName: name,
+        collectionId: selectedCollectionId || undefined,
+      })
     }
-  }, [mode, hex, anchorStep, colorName, suggestedName, selectedCollectionId, selectedTarget])
+  }, [
+    mode,
+    hex,
+    scaleType,
+    lightBackground,
+    darkBackground,
+    colorName,
+    suggestedName,
+    selectedCollectionId,
+    selectedTarget,
+  ])
 
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-full">
-        <div className="flex flex-col p-4 gap-4 border-b border-figma-border">
+        <div className="flex flex-col p-4 gap-3 border-b border-figma-border">
           <HexInput value={hex} onChange={handleHexChange} />
+          <ScaleTypeToggle value={scaleType} onChange={setScaleType} />
+          <BackgroundInputs
+            light={lightBackground}
+            dark={darkBackground}
+            onLightChange={setLightBackground}
+            onDarkChange={setDarkBackground}
+          />
         </div>
 
         <div className="flex flex-col gap-3 p-4">
@@ -119,6 +198,10 @@ export default function App() {
           )}
         </div>
 
+        {errorMessage && (
+          <div className="px-4 pb-2 text-[11px]/4 text-figma-text-danger">{errorMessage}</div>
+        )}
+
         <div className="flex flex-col gap-3 p-4 mt-auto">
           <button
             onClick={handleSubmit}
@@ -131,11 +214,7 @@ export default function App() {
       </div>
 
       <div className="w-full p-4 border-l border-figma-border">
-        <ScalePreview
-          scale={scale}
-          anchorStep={anchorStep}
-          onAnchorChange={handleAnchorChange}
-        />
+        <ScalePreview scale={scale} />
       </div>
     </div>
   )
