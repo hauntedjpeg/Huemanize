@@ -39,12 +39,12 @@ function saveString(key: string, value: string) {
 }
 
 export default function App() {
-  const [hex, setHex] = useState(() => loadString('hex', '#3B82F6'))
+  const [hex, setHex] = useState(() => loadString('hex', '#859991'))
   const [scaleType, setScaleType] = useState<ScaleType>(
     () => (loadString('scaleType', 'accent') as ScaleType),
   )
   const [lightBackground, setLightBackground] = useState(() => loadString('lightBg', '#FFFFFF'))
-  const [darkBackground, setDarkBackground] = useState(() => loadString('darkBg', '#0C0C0C'))
+  const [darkBackground, setDarkBackground] = useState(() => loadString('darkBg', '#000000'))
   const [scale, setScale] = useState<ScaleEntry[]>([])
   const [colorName, setColorName] = useState('')
   const [suggestedName, setSuggestedName] = useState('')
