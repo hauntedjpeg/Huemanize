@@ -346,8 +346,12 @@ function getScaleFromColor(
 		.slice()
 		.sort((a, b) => source.deltaEOK(a) - source.deltaEOK(b))[0];
 
-	// Note the chroma difference between the source color and the base color
-	const ratioC = source.coords[1] / baseColor.coords[1];
+	// Note the chroma difference between the source color and the base color.
+	// Guard against an achromatic base (chroma 0): there is no chroma direction
+	// to scale, and dividing would yield NaN (0 / 0) for neutral-gray inputs,
+	// corrupting the scale into "#NaNNaNNaN".
+	const ratioC =
+		baseColor.coords[1] === 0 ? 0 : source.coords[1] / baseColor.coords[1];
 
 	// Modify hue and chroma of the scale to match the source color
 	scale.forEach((color) => {
