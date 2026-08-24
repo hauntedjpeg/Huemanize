@@ -3,8 +3,6 @@ export type ScaleStep = (typeof SCALE_STEPS)[number]
 
 export type ScaleType = 'accent' | 'gray'
 
-export type Tuple12<T> = readonly [T, T, T, T, T, T, T, T, T, T, T, T]
-
 export interface ScaleEntry {
   step: ScaleStep
   light: string

@@ -82,13 +82,17 @@ export default function App() {
         setCollections(msg.collections)
       } else if (msg.type === 'all-groups') {
         setGroupedCollections(msg.collections)
-        setSelectedTarget(
-          msg.collections[0]?.groups[0]
-            ? `${msg.collections[0].id}|${msg.collections[0].groups[0]}`
-            : '',
+        const targets = msg.collections.flatMap((c) => c.groups.map((g) => `${c.id}|${g}`))
+        // Keep the user's pick across refetches; only fall back when it's gone.
+        setSelectedTarget((current) =>
+          current && targets.includes(current) ? current : (targets[0] ?? ''),
         )
       } else if (msg.type === 'added-to-variables') {
         setErrorMessage('')
+        // A write can create a new collection and always adds Light/Dark
+        // subgroups, so refresh the pickers instead of waiting for a reopen.
+        postToPlugin({ type: 'get-collections' })
+        postToPlugin({ type: 'get-all-groups' })
       } else if (msg.type === 'mismatched-collection') {
         setErrorMessage(
           `"${msg.collectionName}" already uses the legacy 50–950 step naming under this color. Switch to a different collection or pick "Create new collection".`,

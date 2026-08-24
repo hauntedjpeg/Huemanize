@@ -16,13 +16,13 @@ export default function ScaleTypeToggle({ value, onChange }: ScaleTypeToggleProp
           onClick={() => onChange('accent')}
           className={`flex-1 h-6 text-[11px]/4 rounded-md border border-figma-bg font-medium ${value === 'accent' ? 'bg-figma-bg border border-figma-border text-figma-text' : 'border-transparent text-figma-text-secondary hover:text-figma-text'}`}
         >
-          Accent
+          Tuned
         </button>
         <button
           onClick={() => onChange('gray')}
           className={`flex-1 h-6 text-[11px]/4 rounded-md border border-figma-bg font-medium ${value === 'gray' ? 'bg-figma-bg border border-figma-border text-figma-text' : 'border-transparent text-figma-text-secondary hover:text-figma-text'}`}
         >
-          Gray
+          Standard
         </button>
       </div>
     </div>
